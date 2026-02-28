@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Physiology Structure Engine",
+    "slug": "physiology-structure-engine",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.physiology.structureengine"
+    },
+    "android": {
+      "package": "com.physiology.structureengine"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "a6716d48-dd7e-45ba-9b2f-eec977c39f6b"
+      }
+    }
+  }
+}

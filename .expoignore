@@ -1,0 +1,3 @@
+# Prevent Expo from modifying root tsconfig.json
+# Always run expo commands from apps/mobile directory
+tsconfig.json

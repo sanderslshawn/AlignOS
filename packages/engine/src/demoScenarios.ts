@@ -1,0 +1,131 @@
+import type { DemoScenario } from '@physiology-engine/shared';
+
+export function getDemoScenarios(): DemoScenario[] {
+  const baseDate = new Date();
+  baseDate.setHours(0, 0, 0, 0);
+
+  return [
+    {
+      name: 'Tight Day',
+      description: 'High-structure day with back-to-back commitments',
+      userProfile: {
+        wakeTime: '06:00',
+        sleepTime: '22:00',
+        preferredFastingHours: 16,
+        caffeineToleranceLow: false,
+        stressBaseline: 5,
+        restingHR: 60,
+        maxHR: 180,
+        defaultDayMode: 'tight',
+        mealSequencePreference: 'protein-first',
+      },
+      dayState: {
+        date: baseDate,
+        dayMode: 'tight',
+        currentTime: new Date(baseDate.getTime() + 6 * 60 * 60 * 1000),
+        sleepQuality: 7,
+        stressLevel: 6,
+        currentHR: 72,
+        plannedMeals: [],
+        plannedCaffeine: [],
+        plannedWalks: [],
+        plannedWorkouts: [],
+        plannedActivations: [],
+        constraints: [
+          {
+            start: new Date(baseDate.getTime() + 9 * 60 * 60 * 1000),
+            end: new Date(baseDate.getTime() + 12 * 60 * 60 * 1000),
+            type: 'meeting',
+            description: 'Morning meetings',
+          },
+          {
+            start: new Date(baseDate.getTime() + 14 * 60 * 60 * 1000),
+            end: new Date(baseDate.getTime() + 17 * 60 * 60 * 1000),
+            type: 'work',
+            description: 'Deep work block',
+          },
+        ],
+        completedEvents: [],
+        isHungry: false,
+        isCraving: false,
+      },
+    },
+    {
+      name: 'Comfort Meal Day',
+      description: 'Day with a planned comfort meal and containment',
+      userProfile: {
+        wakeTime: '07:00',
+        sleepTime: '23:00',
+        preferredFastingHours: 14,
+        caffeineToleranceLow: false,
+        stressBaseline: 4,
+        restingHR: 58,
+        maxHR: 175,
+        defaultDayMode: 'flex',
+        mealSequencePreference: 'balanced',
+      },
+      dayState: {
+        date: baseDate,
+        dayMode: 'flex',
+        currentTime: new Date(baseDate.getTime() + 7 * 60 * 60 * 1000),
+        sleepQuality: 8,
+        stressLevel: 4,
+        plannedMeals: [
+          {
+            type: 'meal',
+            time: new Date(baseDate.getTime() + 19 * 60 * 60 * 1000),
+            mealType: 'comfort-meal',
+            description: 'Social dinner',
+          },
+        ],
+        plannedCaffeine: [],
+        plannedWalks: [],
+        plannedWorkouts: [],
+        plannedActivations: [],
+        constraints: [
+          {
+            start: new Date(baseDate.getTime() + 18 * 60 * 60 * 1000),
+            end: new Date(baseDate.getTime() + 21 * 60 * 60 * 1000),
+            type: 'social',
+            description: 'Dinner with friends',
+          },
+        ],
+        completedEvents: [],
+        isHungry: false,
+        isCraving: true,
+      },
+    },
+    {
+      name: 'Recovery Day',
+      description: 'Low-intensity recovery day after poor sleep',
+      userProfile: {
+        wakeTime: '07:30',
+        sleepTime: '22:30',
+        preferredFastingHours: 12,
+        caffeineToleranceLow: true,
+        stressBaseline: 6,
+        restingHR: 62,
+        maxHR: 170,
+        defaultDayMode: 'recovery',
+        mealSequencePreference: 'balanced',
+      },
+      dayState: {
+        date: baseDate,
+        dayMode: 'recovery',
+        currentTime: new Date(baseDate.getTime() + 7.5 * 60 * 60 * 1000),
+        sleepQuality: 4,
+        stressLevel: 7,
+        currentHR: 75,
+        plannedMeals: [],
+        plannedCaffeine: [],
+        plannedWalks: [],
+        plannedWorkouts: [],
+        plannedActivations: [],
+        constraints: [],
+        completedEvents: [],
+        isHungry: true,
+        isCraving: false,
+      },
+    },
+  ];
+}

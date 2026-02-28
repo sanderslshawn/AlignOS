@@ -1,0 +1,29 @@
+{
+  "name": "physiology-structure-engine",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "start": "cd apps/mobile && npm start",
+    "dev": "npm run dev --workspace=apps/mobile",
+    "mobile": "npm run start --workspace=apps/mobile",
+    "api": "npm run dev --workspace=services/api",
+    "api:prod": "npm run start --workspace=services/api",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:engine": "npm run test --workspace=packages/engine",
+    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules services/*/node_modules",
+    "type-check": "tsc --noEmit --workspaces"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "@types/react": "~19.1.10",
+    "typescript": "^5.3.3",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.11"
+  }
+}
