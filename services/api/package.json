@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "dev:watchdog": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-watchdog.ps1",
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run build --workspace=@physiology-engine/shared && npm run build --workspace=@physiology-engine/engine && tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "test": "jest"
   },
