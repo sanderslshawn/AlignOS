@@ -4,6 +4,7 @@ import { usePlanStore } from '../store/planStore';
 import { evaluateQuickStatusDecision } from '../engine/quickStatusEngine';
 import { QUICK_STATUS_LABELS, QUICK_STATUS_SIGNALS, normalizeQuickStatusSignals, type QuickStatusSignal } from '../types/quickStatus';
 import { useTheme, Card, SectionTitle, AppIcon } from '@physiology-engine/ui';
+<<<<<<< HEAD
 import TooltipModal from '../components/help/TooltipModal';
 import WhyThisModal from '../components/help/WhyThisModal';
 import { useFeatureDiscovery } from '../hooks/useFeatureDiscovery';
@@ -320,6 +321,8 @@ import { usePlanStore } from '../store/planStore';
 import { evaluateQuickStatusDecision } from '../engine/quickStatusEngine';
 import { QUICK_STATUS_LABELS, QUICK_STATUS_SIGNALS, normalizeQuickStatusSignals, type QuickStatusSignal } from '../types/quickStatus';
 import { useTheme, Card, SectionTitle, AppIcon } from '@physiology-engine/ui';
+=======
+>>>>>>> e681f7e (Signals: call advisor on signal toggle; add preset browser link in Insights; allow advisor inserts to be added to timeline)
 import { ask as askAdvisor } from '../advisor';
 import { extractTimelineInserts, mapAdvisorInsertToScheduleItem, hasTimelineSuggestion } from '../advisor/utils/timelineInsert';
 import TooltipModal from '../components/help/TooltipModal';
