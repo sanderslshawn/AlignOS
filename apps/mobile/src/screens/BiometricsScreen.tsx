@@ -165,7 +165,7 @@ export default function BiometricsScreen() {
               label="Avg HRV (7d)"
               value={Math.round(avgHRV).toString()}
               subtitle="ms"
-              color="#00ff88"
+              color="#22D3EE"
             />
           )}
           
@@ -240,7 +240,7 @@ export default function BiometricsScreen() {
                     <View
                       style={[
                         styles.chartBarFill,
-                        { height: `${height}%`, backgroundColor: '#00ff88' },
+                        { height: `${height}%`, backgroundColor: '#22D3EE' },
                       ]}
                     />
                     <Text style={styles.chartBarLabel}>
@@ -312,14 +312,14 @@ function SleepStage({
 
 // Helper Functions
 function getRecoveryColors(score: number): [string, string] {
-  if (score >= 80) return ['#00ff88', '#14967F'];
+  if (score >= 80) return ['#22D3EE', '#1E9BA9'];
   if (score >= 60) return ['#FFD700', '#FFA500'];
   if (score >= 40) return ['#FFA500', '#FF8C00'];
   return ['#ff6b6b', '#c92a2a'];
 }
 
 function getSleepColor(score: number): string {
-  if (score >= 80) return '#00ff88';
+  if (score >= 80) return '#22D3EE';
   if (score >= 60) return '#FFD700';
   if (score >= 40) return '#FFA500';
   return '#FF6B6B';
@@ -378,7 +378,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#00ff88',
+    color: '#22D3EE',
   },
   syncButton: {
     backgroundColor: '#222',
@@ -389,7 +389,7 @@ const styles = StyleSheet.create({
     borderColor: '#333',
   },
   syncButtonText: {
-    color: '#00ff88',
+    color: '#22D3EE',
     fontSize: 14,
     fontWeight: '600',
   },

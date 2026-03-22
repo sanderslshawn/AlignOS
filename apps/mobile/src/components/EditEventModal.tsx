@@ -356,8 +356,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   optionSelected: {
-    borderColor: '#14967F',
-    backgroundColor: '#0d2e28',
+    borderColor: '#22D3EE',
+    backgroundColor: 'rgba(34, 211, 238, 0.08)',
   },
   optionText: {
     color: '#888',
@@ -365,7 +365,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   optionTextSelected: {
-    color: '#14967F',
+    color: '#22D3EE',
   },
   input: {
     backgroundColor: '#1a1a1a',
@@ -391,7 +391,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   timeButtonText: {
-    color: '#14967F',
+    color: '#22D3EE',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -441,7 +441,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   saveButton: {
-    backgroundColor: '#14967F',
+    backgroundColor: '#22D3EE',
     borderRadius: 8,
     padding: 16,
     flex: 1,

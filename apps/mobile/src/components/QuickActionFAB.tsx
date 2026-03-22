@@ -4,9 +4,12 @@
  */
 
 import React, { useRef } from 'react';
-import { TouchableOpacity, StyleSheet, Animated, Text } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { haptics } from '../utils/haptics';
+import { TouchableOpacity, StyleSheet, Animated, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { hapticMedium } from '../ui/utils/haptics';
+import { AppIcon } from '../ui/components/AppIcon';
+import { Colors } from '../ui/theme/colors';
+import { Shadows } from '../ui/theme/shadows';
 
 interface QuickActionFABProps {
   onPress: () => void;
@@ -14,28 +17,10 @@ interface QuickActionFABProps {
 
 export default function QuickActionFAB({ onPress }: QuickActionFABProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-
-  React.useEffect(() => {
-    // Subtle pulse animation
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.1,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-  }, []);
+  const insets = useSafeAreaInsets();
 
   const handlePress = () => {
-    haptics.medium();
+    hapticMedium();
 
     // Scale animation
     Animated.sequence([
@@ -57,11 +42,9 @@ export default function QuickActionFAB({ onPress }: QuickActionFABProps) {
   return (
     <Animated.View style={[
       styles.container,
+      { bottom: insets.bottom + 16 },
       {
-        transform: [
-          { scale: scaleAnim },
-          { scale: pulseAnim },
-        ],
+        transform: [{ scale: scaleAnim }],
       },
     ]}>
       <TouchableOpacity
@@ -69,19 +52,8 @@ export default function QuickActionFAB({ onPress }: QuickActionFABProps) {
         onPress={handlePress}
         activeOpacity={0.8}
       >
-        <LinearGradient
-          colors={['#00ff88', '#14967F', '#0a7a5a']}
-          style={styles.gradient}
-        >
-          <Text style={styles.icon}>🧠</Text>
-        </LinearGradient>
+        <AppIcon name="brain" size={24} color={Colors.Background} />
       </TouchableOpacity>
-      
-      {/* Glow effect */}
-      <LinearGradient
-        colors={['rgba(0, 255, 136, 0.3)', 'transparent']}
-        style={styles.glow}
-      />
     </Animated.View>
   );
 }
@@ -89,38 +61,16 @@ export default function QuickActionFAB({ onPress }: QuickActionFABProps) {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    right: 20,
-    bottom: 90,
-    width: 64,
-    height: 64,
-    alignItems: 'center',
-    justifyContent: 'center',
+    right: 24,
+    zIndex: 1000,
   },
   button: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    overflow: 'hidden',
-    shadowColor: '#00ff88',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.6,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  gradient: {
-    width: '100%',
-    height: '100%',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.AccentPrimary,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  icon: {
-    fontSize: 32,
-  },
-  glow: {
-    position: 'absolute',
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    zIndex: -1,
+    ...Shadows.lg,
   },
 });

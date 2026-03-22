@@ -1,14 +1,19 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Modal, ScrollView, Switch } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Modal, ScrollView, Switch, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import type { ScheduleItem } from '@physiology-engine/shared';
-import { format, parse } from 'date-fns';
+import { ensureStartEnd } from '../utils/time';
+import ClockTimeField from './ClockTimeField';
+import { addMinutes, clockTimeFromISO, parseClockTime, toISOWithClockTime, toSortableMinutes } from '../utils/clockTime';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { canDeleteScheduleItem } from '../engine/normalizeTimeline';
 
 interface EditScheduleItemModalProps {
   visible: boolean;
   item: ScheduleItem | null;
-  onSave: (item: ScheduleItem) => void;
+  onSave: (item: ScheduleItem) => Promise<void> | void;
   onDelete?: () => void;
   onClose: () => void;
+  isSaving?: boolean;
 }
 
 const ITEM_TYPES = [
@@ -16,28 +21,38 @@ const ITEM_TYPES = [
   { value: 'sleep', label: 'Sleep' },
   { value: 'work', label: 'Work' },
   { value: 'meal', label: 'Meal' },
+  { value: 'snack', label: 'Snack' },
   { value: 'workout', label: 'Workout' },
   { value: 'walk', label: 'Walk' },
   { value: 'focus', label: 'Focus' },
   { value: 'break', label: 'Break' },
   { value: 'meeting', label: 'Meeting' },
+  { value: 'commute', label: 'Commute' },
   { value: 'custom', label: 'Custom' },
 ];
 
-export default function EditScheduleItemModal({ visible, item, onSave, onDelete, onClose }: EditScheduleItemModalProps) {
-  const [editedItem, setEditedItem] = useState<ScheduleItem | null>(item);
+export default function EditScheduleItemModal({ visible, item, onSave, onDelete, onClose, isSaving = false }: EditScheduleItemModalProps) {
+  const [editedItem, setEditedItem] = useState<ScheduleItem | null>(item ? ensureStartEnd(item) : item);
+  const insets = useSafeAreaInsets();
 
   React.useEffect(() => {
     if (item) {
-      setEditedItem(item);
+      setEditedItem(ensureStartEnd(item));
     }
   }, [item]);
 
   if (!editedItem) return null;
 
-  const handleSave = () => {
-    onSave(editedItem);
-    onClose();
+  const handleSave = async () => {
+    if (!editedItem) return;
+
+    const normalized = ensureStartEnd(editedItem);
+    if (normalized.endMin <= normalized.startMin) {
+      Alert.alert('Invalid time', 'End time must be later than start time.');
+      return;
+    }
+
+    await onSave(normalized);
   };
 
   const handleDelete = () => {
@@ -47,24 +62,41 @@ export default function EditScheduleItemModal({ visible, item, onSave, onDelete,
     }
   };
 
-  const formatTime = (isoString: string) => {
-    try {
-      const date = new Date(isoString);
-      return format(date, 'HH:mm');
-    } catch {
-      return '00:00';
-    }
+  const canDelete = canDeleteScheduleItem(editedItem);
+
+  const handleStartTimeChange = (startTime: NonNullable<ScheduleItem['startTime']>) => {
+    const currentEnd = editedItem.endTime || clockTimeFromISO(editedItem.endISO);
+    const startMin = toSortableMinutes(startTime);
+    const endMin = currentEnd ? Math.max(toSortableMinutes(currentEnd), startMin + 5) : startMin + 5;
+    const computedEnd = endMin === startMin + 5 && !currentEnd ? addMinutes(startTime, 5) : (currentEnd || addMinutes(startTime, 5));
+    setEditedItem({
+      ...editedItem,
+      startTime,
+      endTime: computedEnd,
+      startMin,
+      endMin,
+      durationMin: endMin - startMin,
+      startISO: toISOWithClockTime(editedItem.startISO, startTime),
+      endISO: toISOWithClockTime(editedItem.endISO, computedEnd),
+    });
   };
 
-  const updateTime = (isoString: string, timeStr: string) => {
-    try {
-      const date = new Date(isoString);
-      const [hours, minutes] = timeStr.split(':').map(Number);
-      date.setHours(hours, minutes);
-      return date.toISOString();
-    } catch {
-      return isoString;
-    }
+  const handleEndTimeChange = (endTime: NonNullable<ScheduleItem['endTime']>) => {
+    const currentStart = editedItem.startTime || clockTimeFromISO(editedItem.startISO);
+    if (!currentStart) return;
+    const startMin = toSortableMinutes(currentStart);
+    const endMin = Math.max(toSortableMinutes(endTime), startMin + 5);
+    const computedEnd = endMin === startMin + 5 ? addMinutes(currentStart, 5) : endTime;
+    setEditedItem({
+      ...editedItem,
+      startTime: currentStart,
+      endTime: computedEnd,
+      startMin,
+      endMin,
+      durationMin: endMin - startMin,
+      startISO: toISOWithClockTime(editedItem.startISO, currentStart),
+      endISO: toISOWithClockTime(editedItem.endISO, computedEnd),
+    });
   };
 
   return (
@@ -75,9 +107,20 @@ export default function EditScheduleItemModal({ visible, item, onSave, onDelete,
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <View style={styles.modal}>
-          <ScrollView style={styles.scrollView}>
-            <Text style={styles.title}>Edit Schedule Item</Text>
+        <KeyboardAvoidingView
+          style={styles.keyboardContainer}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+        >
+          <SafeAreaView edges={['bottom']} style={styles.safeArea}>
+            <View style={styles.modal}>
+              <ScrollView
+                style={styles.scrollView}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) + 120 }}
+              >
+                <Text style={styles.title}>Edit Schedule Item</Text>
 
             <View style={styles.field}>
               <Text style={styles.label}>Title</Text>
@@ -118,35 +161,17 @@ export default function EditScheduleItemModal({ visible, item, onSave, onDelete,
             <View style={styles.row}>
               <View style={[styles.field, styles.half]}>
                 <Text style={styles.label}>Start Time</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formatTime(editedItem.startISO)}
-                  onChangeText={(text) =>
-                    setEditedItem({
-                      ...editedItem,
-                      startISO: updateTime(editedItem.startISO, text),
-                    })
-                  }
-                  placeholder="HH:mm"
-                  placeholderTextColor="#666"
-                  keyboardType="numbers-and-punctuation"
+                <ClockTimeField
+                  value={editedItem.startTime || clockTimeFromISO(editedItem.startISO)}
+                  onChange={handleStartTimeChange}
                 />
               </View>
 
               <View style={[styles.field, styles.half]}>
                 <Text style={styles.label}>End Time</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formatTime(editedItem.endISO)}
-                  onChangeText={(text) =>
-                    setEditedItem({
-                      ...editedItem,
-                      endISO: updateTime(editedItem.endISO, text),
-                    })
-                  }
-                  placeholder="HH:mm"
-                  placeholderTextColor="#666"
-                  keyboardType="numbers-and-punctuation"
+                <ClockTimeField
+                  value={editedItem.endTime || clockTimeFromISO(editedItem.endISO)}
+                  onChange={handleEndTimeChange}
                 />
               </View>
             </View>
@@ -166,36 +191,51 @@ export default function EditScheduleItemModal({ visible, item, onSave, onDelete,
 
             <View style={styles.switchRow}>
               <View>
-                <Text style={styles.label}>Lock this item</Text>
-                <Text style={styles.hint}>Locked items stay fixed when regenerating the plan</Text>
+                <Text style={styles.label}>Treat as fixed anchor</Text>
+                <Text style={styles.hint}>Fixed anchors define timeline placement but can still be edited or deleted</Text>
               </View>
               <Switch
-                value={editedItem.fixed}
-                onValueChange={(value) => setEditedItem({ ...editedItem, fixed: value })}
-                trackColor={{ false: '#444', true: '#14967F' }}
+                value={Boolean(editedItem.isFixedAnchor || editedItem.fixed || (editedItem.meta && (editedItem.meta as any).isAnchor))}
+                onValueChange={(value) =>
+                  setEditedItem({
+                    ...editedItem,
+                    isSystemAnchor: editedItem.type === 'wake' || editedItem.type === 'sleep',
+                    isFixedAnchor: value,
+                    fixed: value,
+                    meta: {
+                      ...(editedItem.meta || {}),
+                      isAnchor: value,
+                    },
+                  })
+                }
+                trackColor={{ false: '#444', true: '#22D3EE' }}
                 thumbColor="#fff"
-                disabled={editedItem.type === 'wake' || editedItem.type === 'sleep'}
+                disabled={Boolean(editedItem.isSystemAnchor || editedItem.type === 'wake' || editedItem.type === 'sleep')}
               />
             </View>
 
-            <View style={styles.buttons}>
-              <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
+              </ScrollView>
 
-              {onDelete && editedItem.type !== 'wake' && editedItem.type !== 'sleep' && (
-                <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-                  <Text style={styles.deleteButtonText}>Delete</Text>
+              <View style={styles.buttons}>
+                <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
-              )}
 
-              <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-                <Text style={styles.saveButtonText}>Save</Text>
-              </TouchableOpacity>
+                {onDelete && canDelete && (
+                  <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
+                    <Text style={styles.deleteButtonText}>Delete</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity style={styles.saveButton} onPress={() => void handleSave()} disabled={isSaving}>
+                  <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save'}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </ScrollView>
-        </View>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
       </View>
+
     </Modal>
   );
 }
@@ -205,6 +245,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
     justifyContent: 'flex-end',
+  },
+  keyboardContainer: {
+    width: '100%',
+  },
+  safeArea: {
+    width: '100%',
   },
   modal: {
     backgroundColor: '#1a1a1a',
@@ -245,6 +291,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#333',
   },
+  timeValue: {
+    color: '#fff',
+    fontSize: 16,
+  },
   textArea: {
     height: 80,
     textAlignVertical: 'top',
@@ -262,8 +312,8 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   typeChipSelected: {
-    backgroundColor: '#14967F',
-    borderColor: '#14967F',
+    backgroundColor: '#22D3EE',
+    borderColor: '#22D3EE',
   },
   typeChipText: {
     color: '#aaa',
@@ -323,12 +373,52 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
     borderRadius: 8,
-    backgroundColor: '#14967F',
+    backgroundColor: '#22D3EE',
   },
   saveButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  pickerCard: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 16,
+  },
+  pickerTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  pickerActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+    gap: 8,
+  },
+  pickerActionButton: {
+    minWidth: 80,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerCancelText: {
+    color: '#aaa',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  pickerDoneText: {
+    color: '#22D3EE',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

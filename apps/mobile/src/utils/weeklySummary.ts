@@ -183,38 +183,38 @@ export async function generateWeeklySummary(
   // Generate achievements
   const achievements: string[] = [];
   if (workoutStats.completed >= workoutStats.total * 0.8) {
-    achievements.push('🏆 Workout Warrior - 80%+ workout completion!');
+    achievements.push('Training Execution - 80%+ workout completion');
   }
   if (mealStats.onTime >= mealStats.total * 0.7) {
-    achievements.push('⏰ Timing Master - 70%+ meals on time!');
+    achievements.push('Timing Precision - 70%+ meals on schedule');
   }
   if (walkStats.postMealWalks >= walkStats.total * 0.5) {
-    achievements.push('🚶 Glucose Optimizer - Consistent post-meal walks!');
+    achievements.push('Glucose Management - Consistent post-meal walks');
   }
   if (sleepStats.consistency >= 80) {
-    achievements.push('😴 Sleep Champion - Excellent sleep consistency!');
+    achievements.push('Sleep Stability - Excellent consistency');
   }
   if (habitStats.averageCompletionRate >= 75) {
-    achievements.push('⭐ Habit Master - 75%+ habit completion!');
+    achievements.push('Behavioral Execution - 75%+ completion');
   }
   
   // Areas for improvement
   const areasForImprovement: string[] = [];
   if (workoutStats.completed < workoutStats.total * 0.7) {
-    areasForImprovement.push('💪 Increase workout consistency (currently ' + 
+    areasForImprovement.push('Training consistency needs improvement (currently ' + 
       Math.round((workoutStats.completed / workoutStats.total) * 100) + '%)');
   }
   if (hydrationStats.completedReminders < hydrationStats.totalReminders * 0.6) {
-    areasForImprovement.push('💧 Improve hydration tracking');
+    areasForImprovement.push('Hydration protocol adherence low');
   }
   if (mealStats.averageDelay > 20) {
-    areasForImprovement.push('⏱️ Reduce meal delays - optimize meal prep');
+    areasForImprovement.push('Meal timing variance high - optimize prep');
   }
   if (sleepStats.consistency < 75) {
-    areasForImprovement.push('🌙 Improve sleep consistency');
+    areasForImprovement.push('Sleep schedule variability detected');
   }
   if (habitStats.averageCompletionRate < 60) {
-    areasForImprovement.push('📋 Focus on priority habits');
+    areasForImprovement.push('Focus needed on primary habit stack');
   }
   
   // Calculate overall week rating
@@ -262,56 +262,56 @@ export function formatWeeklySummaryText(summary: WeeklySummary): string {
     : '• You are doing great! Keep it up!';
     
   const lines = [
-    '📊 WEEKLY SUMMARY',
+    'WEEKLY SYSTEM REPORT',
     summary.weekStart + ' to ' + summary.weekEnd,
     '',
-    '⭐ OVERALL RATING: ' + summary.weekRating + '/100',
+    'STABILITY SCORE: ' + summary.weekRating + '/100',
     '',
-    '📈 COMPLETION STATS',
+    'EXECUTION METRICS',
     '• Total Activities: ' + summary.totalActivities,
     '• Completed: ' + summary.completedActivities + ' (' + summary.completionRate + '%)',
     '',
-    '🍽️ MEAL TIMING',
-    '• On Time: ' + summary.mealStats.onTime + '/' + summary.mealStats.total,
-    '• Average Delay: ' + summary.mealStats.averageDelay + ' min',
+    'NUTRITION TIMING',
+    '• On Schedule: ' + summary.mealStats.onTime + '/' + summary.mealStats.total,
+    '• Avg Variance: ' + summary.mealStats.averageDelay + ' min',
     '• Skipped: ' + summary.mealStats.skipped,
     '',
-    '💪 WORKOUTS',
+    'TRAINING',
     '• Completed: ' + summary.workoutStats.completed + '/' + summary.workoutStats.total,
-    '• Total Time: ' + summary.workoutStats.totalMinutes + ' minutes',
+    '• Total Volume: ' + summary.workoutStats.totalMinutes + ' minutes',
     '• Avg Intensity: ' + summary.workoutStats.averageIntensity,
     '',
-    '🚶 WALKS',
-    '• Completed: ' + summary.walkStats.completed + '/' + summary.walkStats.total,
-    '• Post-Meal Walks: ' + summary.walkStats.postMealWalks,
+    'MOVEMENT',
+    '• Total Walks: ' + summary.walkStats.completed + '/' + summary.walkStats.total,
+    '• Post-Meal: ' + summary.walkStats.postMealWalks,
     '• Total Time: ' + summary.walkStats.totalMinutes + ' minutes',
     '',
-    '😴 SLEEP',
-    '• Average: ' + summary.sleepStats.averageHours.toFixed(1) + ' hours',
+    'RECOVERY',
+    '• Avg Sleep: ' + summary.sleepStats.averageHours.toFixed(1) + ' hours',
     '• Bedtime: ' + summary.sleepStats.averageBedtime,
-    '• Wake Time: ' + summary.sleepStats.averageWakeTime,
+    '• Wake: ' + summary.sleepStats.averageWakeTime,
     '• Consistency: ' + summary.sleepStats.consistency + '%',
     '',
-    '💧 HYDRATION',
-    '• Completed: ' + summary.hydrationStats.completedReminders + '/' + summary.hydrationStats.totalReminders,
-    '• Est. Water: ' + summary.hydrationStats.estimatedOunces + ' oz',
+    'HYDRATION',
+    '• Protocol Adherence: ' + summary.hydrationStats.completedReminders + '/' + summary.hydrationStats.totalReminders,
+    '• Est. Intake: ' + summary.hydrationStats.estimatedOunces + ' oz',
     '',
-    '📋 HABITS',
-    '• Tracked: ' + summary.habitStats.totalHabits + ' habits',
-    '• Completion: ' + summary.habitStats.averageCompletionRate + '%',
-    '• Top Habit: ' + summary.habitStats.topHabit,
+    'BEHAVIORAL STACK',
+    '• Active Habits: ' + summary.habitStats.totalHabits,
+    '• Execution Rate: ' + summary.habitStats.averageCompletionRate + '%',
+    '• Highest: ' + summary.habitStats.topHabit,
     '• Focus Area: ' + summary.habitStats.improvementArea,
     '',
-    '⚡ ENERGY INSIGHTS',
+    'ENERGY PROFILE',
     '• Morning: ' + summary.energyInsights.averageMorningEnergy + '%',
     '• Afternoon: ' + summary.energyInsights.averageAfternoonEnergy + '%',
     '• Evening: ' + summary.energyInsights.averageEveningEnergy + '%',
     '• Peak Window: ' + summary.energyInsights.peakPerformanceWindow,
     '',
-    '🏆 ACHIEVEMENTS',
+    'SYSTEM HEALTH',
     achievements,
     '',
-    '📈 AREAS FOR IMPROVEMENT',
+    'OPTIMIZATION TARGETS',
     improvements
   ];
   
@@ -322,22 +322,21 @@ export function formatWeeklySummaryText(summary: WeeklySummary): string {
  * Format weekly summary as shareable social media post
  */
 export function formatWeeklySummaryForSharing(summary: WeeklySummary): string {
-  const emoji = summary.weekRating >= 90 ? '🔥' : summary.weekRating >= 75 ? '💪' : summary.weekRating >= 60 ? '👍' : '📈';
-  const topAchievement = summary.achievements[0] || 'Building consistency!';
+  const topAchievement = summary.achievements[0] || 'Building consistency';
   
   const lines = [
-    emoji + ' My Week in Physiology Engine ' + emoji,
+    'AlignOS Weekly System Report',
     '',
-    'Overall Score: ' + summary.weekRating + '/100',
+    'Stability Score: ' + summary.weekRating + '/100',
     '',
-    '✅ ' + summary.completionRate + '% activity completion',
-    '💪 ' + summary.workoutStats.completed + ' workouts (' + summary.workoutStats.totalMinutes + ' min)',
-    '😴 ' + summary.sleepStats.averageHours.toFixed(1) + 'hr average sleep',
-    '📋 ' + summary.habitStats.averageCompletionRate + '% habit completion',
+    'Execution: ' + summary.completionRate + '% completion',
+    'Training: ' + summary.workoutStats.completed + ' sessions (' + summary.workoutStats.totalMinutes + ' min)',
+    'Recovery: ' + summary.sleepStats.averageHours.toFixed(1) + 'hr avg sleep',
+    'Habits: ' + summary.habitStats.averageCompletionRate + '% adherence',
     '',
-    'Top Achievement: ' + topAchievement,
+    'Top Metric: ' + topAchievement,
     '',
-    '#PhysiologyEngine #FitnessTracking #HealthOptimization'
+    '#AlignOS #BehavioralOperatingSystem'
   ];
   
   return lines.join('\n');

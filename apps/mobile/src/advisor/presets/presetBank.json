@@ -1,0 +1,716 @@
+[
+  {
+    "id": "meal-timing-breakfast",
+    "title": "When should I eat breakfast?",
+    "tags": ["meal", "breakfast", "timing", "morning"],
+    "utterances": [
+      "when should i eat breakfast",
+      "best time for breakfast",
+      "breakfast timing",
+      "when to have first meal",
+      "eat before or after 11am"
+    ],
+    "intent": "meal_timing",
+    "answerTemplate": "Eat breakfast {hoursSinceWake}–2 hours after waking ({optimalBreakfastTime}). Your wake time is {wakeTime}, so aim for {optimalBreakfastTime} to align with cortisol rhythm.",
+    "nextMovesTemplate": [
+      { "time": "{breakfastPrepTime}", "title": "Prep protein-first meal", "reason": "20min before" },
+      { "time": "{optimalBreakfastTime}", "title": "Eat breakfast", "reason": "20-30min" },
+      { "time": "{postBreakfastWalk}", "title": "Light walk", "reason": "10-15min" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If not hungry yet", "then": "Wait 30min, have water, reassess — forced eating disrupts leptin" }
+    ],
+    "whyTemplate": "Cortisol peaks 30-60min post-wake. Eating too early blunts natural awakening cascade; waiting allows proper metabolic priming.",
+    "actionsTemplate": [
+      { "id": "ADD_BREAKFAST", "label": "Add to Plan" }
+    ]
+  },
+  {
+    "id": "meal-timing-lunch",
+    "title": "When should I eat lunch?",
+    "tags": ["meal", "lunch", "timing", "midday"],
+    "utterances": [
+      "when should i eat lunch",
+      "best time for lunch",
+      "lunch timing",
+      "when to have meal 2",
+      "midday meal time"
+    ],
+    "intent": "meal_timing",
+    "answerTemplate": "Eat lunch 4-6 hours after breakfast, around {optimalLunchTime}. Aim for 12:00-1:00pm window for peak digestive enzyme activity.",
+    "nextMovesTemplate": [
+      { "time": "{lunchPrepTime}", "title": "Prep meal", "reason": "15min before" },
+      { "time": "{optimalLunchTime}", "title": "Eat lunch", "reason": "25-35min" },
+      { "time": "{postLunchWalk}", "title": "Post-meal movement", "reason": "10-20min" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If meeting conflict", "then": "Shift ±30min max — beyond that, insulin timing suffers" }
+    ],
+    "whyTemplate": "Digestive enzymes peak midday. Consistent timing trains circadian metabolic rhythms for optimal glucose clearance.",
+    "actionsTemplate": [
+      { "id": "ADD_LUNCH", "label": "Add to Plan" }
+    ]
+  },
+  {
+    "id": "meal-timing-dinner",
+    "title": "When should I eat dinner?",
+    "tags": ["meal", "dinner", "timing", "evening"],
+    "utterances": [
+      "when should i eat dinner",
+      "best time for dinner",
+      "dinner timing",
+      "when to have last meal",
+      "evening meal time"
+    ],
+    "intent": "meal_timing",
+    "answerTemplate": "Eat dinner 3+ hours before bed ({dinnerDeadline}). Your bedtime is {bedtime}, so finish eating by {dinnerDeadline} to preserve sleep quality.",
+    "nextMovesTemplate": [
+      { "time": "{optimalDinnerTime}", "title": "Start dinner", "reason": "30-40min" },
+      { "time": "{postDinnerWalk}", "title": "Evening walk", "reason": "15min" },
+      { "time": "{winddownStart}", "title": "Begin winddown routine", "reason": "No food after this" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If eating late", "then": "Cut portion by 30% and keep it protein-focused — late carbs spike insulin overnight" }
+    ],
+    "whyTemplate": "Late meals disrupt REM sleep and morning insulin sensitivity. The 3-hour buffer allows digestion to complete before sleep.",
+    "actionsTemplate": [
+      { "id": "ADD_DINNER", "label": "Add to Plan" }
+    ]
+  },
+  {
+    "id": "snack-between-meals",
+    "title": "Can I snack between meals?",
+    "tags": ["snack", "between meals", "hunger", "fasting"],
+    "utterances": [
+      "can i snack",
+      "snack between meals",
+      "hungry between meals",
+      "should i eat between meals",
+      "snacking allowed"
+    ],
+    "intent": "snack",
+    "answerTemplate": "On {dayMode} mode: {snackRule}. Last meal was {hoursSinceLastMeal}h ago. If true hunger (not habit), wait until 3h post-meal minimum.",
+    "nextMovesTemplate": [
+      { "title": "Assess: stomach emptiness or mouth boredom?", "reason": "True hunger vs habit" },
+      { "title": "If true hunger: 20g protein snack only", "reason": "Minimize insulin spike" },
+      { "title": "Return to schedule", "reason": "No grazing pattern" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If within 2h of next meal", "then": "Wait — snacking now ruins meal appetite and doubles insulin exposure" },
+      { "if": "If pattern emerges", "then": "Increase meal 1 & 2 portions by 15% — persistent hunger signals under-eating" }
+    ],
+    "whyTemplate": "Frequent eating keeps insulin elevated, blocking fat oxidation. Meal spacing preserves metabolic flexibility.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "comfort-meal-treats",
+    "title": "When can I have treats like candy or dessert?",
+    "tags": ["treat", "dessert", "candy", "comfort", "pudding", "ice cream"],
+    "utterances": [
+      "when can i have pudding",
+      "treats timing",
+      "dessert when",
+      "candy eating",
+      "ice cream timing",
+      "banana pudding",
+      "comfort food",
+      "cheat meal"
+    ],
+    "intent": "comfort_meal",
+    "answerTemplate": "Optimal treat window: 2-3h after protein meal, at least 2h before bed. Next window: {treatWindowStart}–{treatWindowEnd}.",
+    "nextMovesTemplate": [
+      { "time": "{nextProteinMeal}", "title": "Eat protein-first meal", "reason": "Blunts glucose spike" },
+      { "time": "{treatWindowStart}", "title": "Treat window opens", "reason": "60min window" },
+      { "time": "{postTreatWalk}", "title": "Light movement", "reason": "10-15min glucose disposal" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If craving hits now", "then": "Drink 16oz water, wait 15min — often thirst/habit, not need" },
+      { "if": "If eating on empty stomach", "then": "Risk blood sugar crash within 90min — protein first always" }
+    ],
+    "whyTemplate": "Treats spike glucose and insulin. Timing after protein + distance from sleep minimizes metabolic disruption and preserves REM quality.",
+    "insertsTemplate": [
+      { "type": "break", "title": "Treat Window", "startTime": "{treatWindowStart}", "durationMin": 60, "notes": "After protein meal" }
+    ],
+    "actionsTemplate": [
+      { "id": "ADD_TREAT_WINDOW", "label": "Add Treat Window" },
+      { "id": "INSERT_WALK_15", "label": "Add Post-Treat Walk" }
+    ]
+  },
+  {
+    "id": "caffeine-timing",
+    "title": "When should I have coffee?",
+    "tags": ["caffeine", "coffee", "timing", "energy"],
+    "utterances": [
+      "when should i have coffee",
+      "best time for caffeine",
+      "coffee timing",
+      "when to drink coffee",
+      "caffeine window"
+    ],
+    "intent": "caffeine",
+    "answerTemplate": "First coffee: 90min after waking ({firstCaffeineTime}). Cutoff: 8h before bed ({caffeineCutoff}). Current time: {nowLocal} — {caffeineAdvice}.",
+    "nextMovesTemplate": [
+      { "time": "{firstCaffeineTime}", "title": "First coffee (optional)", "reason": "After cortisol peak" },
+      { "time": "{secondCaffeineTime}", "title": "Optional second (if needed)", "reason": "Before 2pm" },
+      { "time": "{caffeineCutoff}", "title": "Absolute cutoff", "reason": "8h before bed" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If afternoon dip",  "then": "10min walk + cold water — not more caffeine. Half-life is 5-6h" }
+    ],
+    "whyTemplate": "Cortisol is naturally high on waking. Caffeine then creates tolerance. The 8h cutoff preserves deep sleep architecture.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "low-energy-afternoon",
+    "title": "Why am I tired at 3pm?",
+    "tags": ["energy", "tired", "dip", "afternoon", "fatigue"],
+    "utterances": [
+      "tired at 3pm",
+      "afternoon crash",
+      "energy dip",
+      "why am i tired afternoon",
+      "midday fatigue",
+      "sluggish after lunch"
+    ],
+    "intent": "low_energy",
+    "answerTemplate": "Natural circadian dip 7-9h post-wake (2-4pm). Sleep quality last night: {sleepQuality}/10. If <7, sleep debt is the root cause, not food.",
+    "nextMovesTemplate": [
+      { "title": "10min walk in sunlight", "reason": "Resets alertness without caffeine" },
+      { "title": "Cold water on face/wrists", "reason": "Activates sympathetic tone" },
+      { "title": "Return to work — dip passes naturally", "reason": "30-40min duration" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If extreme fatigue", "then": "Check: sleep debt, meal timing, dehydration. Dip is normal; collapse is not" }
+    ],
+    "whyTemplate": "Your suprachiasmatic nucleus creates an alertness dip 7-9h post-wake. Movement and light reset the system without caffeine dependency.",
+    "actionsTemplate": [
+      { "id": "INSERT_WALK_10", "label": "Insert Walk Now" }
+    ]
+  },
+  {
+    "id": "sleep-timing",
+    "title": "What time should I sleep?",
+    "tags": ["sleep", "bedtime", "timing", "rest"],
+    "utterances": [
+      "what time should i sleep",
+      "best bedtime",
+      "when to go to bed",
+      "sleep timing",
+      "bedtime window"
+    ],
+    "intent": "sleep",
+    "answerTemplate": "Target bedtime: {bedtime} (your setting). Winddown starts 90min before ({winddownStart}). Sleep quality last night: {sleepQuality}/10.",
+    "nextMovesTemplate": [
+      { "time": "{winddownStart}", "title": "Start winddown routine", "reason": "No screens, dim lights" },
+      { "time": "{bedtimePrep}", "title": "Final prep (bathroom, water)", "reason": "10min" },
+      { "time": "{bedtime}", "title": "Lights out", "reason": "Aim for 7.5-9h total" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If not tired at bedtime", "then": "Go to another room, read under dim light — don't force it in bed" }
+    ],
+    "whyTemplate": "Consistent sleep timing trains circadian rhythm. The 90min winddown allows adenosine buildup and melatonin release to sync.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "stress-management",
+    "title": "How do I manage stress?",
+    "tags": ["stress", "anxiety", "overwhelm", "management"],
+    "utterances": [
+      "how to manage stress",
+      "stress management",
+      "feeling overwhelmed",
+      "anxiety help",
+      "too much stress"
+    ],
+    "intent": "stress",
+    "answerTemplate": "Current stress level: {stressLevel}/10. If >6, prioritize: sleep debt recovery, meal timing consistency, daily movement. No amount of optimization works on chronic stress + poor sleep.",
+    "nextMovesTemplate": [
+      { "title": "Assess sleep: aim for 7.5h minimum tonight", "reason": "Sleep debt compounds stress response" },
+      { "title": "15min walk (no phone)", "reason": "Lowers cortisol acutely" },
+      { "title": "Tighten meal windows today", "reason": "Reactive eating worsens stress cycles" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If chronic (>2 weeks)", "then": "Schedule professional help — behavioral OS won't fix structural life issues" }
+    ],
+    "whyTemplate": "Stress dysregulates cortisol, sleep, and eating behavior. You can't optimize your way out of chronic stress.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "workout-timing-morning",
+    "title": "Best time to workout?",
+    "tags": ["workout", "exercise", "timing", "training"],
+    "utterances": [
+      "when should i workout",
+      "best time to exercise",
+      "workout timing",
+      "when to train",
+      "exercise window"
+    ],
+    "intent": "workout",
+    "answerTemplate": "Best windows: Morning (+2h post-wake, {morningWorkout}) for fat oxidation, or afternoon (+8h, {afternoonWorkout}) for strength. Avoid evening if sleep is <7.",
+    "nextMovesTemplate": [
+      { "time": "{workoutTime}", "title": "Train (30-45min)", "reason": "Preferred window" },
+      { "time": "{postWorkoutMeal}", "title": "Protein + carbs within 90min", "reason": "Recovery window" },
+      { "title": "Rest day tomorrow if sleep <7h tonight", "reason": "Training on debt = injury risk" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If fasted morning workout", "then": "Keep it <45min — glycogen depletes fast, form suffers" }
+    ],
+    "whyTemplate": "Morning: cortisol peak aids fat oxidation. Afternoon: body temp + muscle activation peak. Evening workouts disrupt sleep if within 3h of bed.",
+    "insertsTemplate": [
+      { "type": "workout", "title": "Strength Workout", "startTime": "{workoutTime}", "durationMin": 45, "notes": "Added from advisor timing recommendation" }
+    ],
+    "actionsTemplate": [
+      { "id": "ADD_WORKOUT", "label": "Add to Plan" }
+    ]
+  },
+  {
+    "id": "fasting-window",
+    "title": "How long should I fast?",
+    "tags": ["fasting", "window", "intermittent", "timing"],
+    "utterances": [
+      "how long to fast",
+      "fasting window",
+      "intermittent fasting timing",
+      "fasting hours",
+      "eating window"
+    ],
+    "intent": "fasting",
+    "answerTemplate": "Current target: {fastingHours}h. On {dayMode} mode, aim for {fastingHours}h minimum. Last meal: {lastMealTime} ({hoursSinceLastMeal}h ago).",
+    "nextMovesTemplate": [
+      { "title": "Hold fasting window until {breakfastTime}", "reason": "Hit {fastingHours}h target" },
+      { "title": "Break fast with protein-first meal", "reason": "Stabilizes glucose reentry" },
+      { "title": "Close eating window by {dinnerDeadline}", "reason": "Resume fasting overnight" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If extreme hunger before window", "then": "Small protein snack OK — better than binge that breaks containment" }
+    ],
+    "whyTemplate": "Fasting windows train metabolic flexibility and insulin sensitivity. Consistency matters more than perfection.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "meal-shift",
+    "title": "Can I shift my meal times?",
+    "tags": ["shift", "reschedule", "adjust", "timing"],
+    "utterances": [
+      "can i shift meal",
+      "move meal time",
+      "reschedule meal",
+      "adjust meal timing",
+      "change meal time"
+    ],
+    "intent": "schedule_adjustment",
+    "answerTemplate": "You can shift ±30min without major impact. Beyond that, insulin timing and circadian alignment suffer. Next meal: {nextMealTime}.",
+    "nextMovesTemplate": [
+      { "title": "Shift meal by ±30min max", "reason": "Preserves circadian rhythm" },
+      { "title": "Adjust next meal accordingly", "reason": "Maintain 4-5h spacing" },
+      { "title": "Return to normal schedule tomorrow", "reason": "Consistency is key" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If major disruption (2+ hours)", "then": "Accept it, don't force eating to 'catch up' — resume schedule next meal" }
+    ],
+    "whyTemplate": "Small shifts are fine. Large disruptions signal you need to redesign your schedule, not fight it daily.",
+    "actionsTemplate": [
+      { "id": "SHIFT_NEXT_MEAL_15", "label": "Shift +15min" },
+      { "id": "SHIFT_NEXT_MEAL_30", "label": "Shift +30min" }
+    ]
+  },
+  {
+    "id": "hydration-timing",
+    "title": "When should I drink water?",
+    "tags": ["water", "hydration", "timing", "fluid"],
+    "utterances": [
+      "when to drink water",
+      "hydration timing",
+      "water schedule",
+      "how much water"
+    ],
+    "intent": "schedule_adjustment",
+    "answerTemplate": "Front-load water: 16oz on waking, 8oz before each meal. Taper after 6pm to avoid sleep disruption. Current time: {nowLocal}.",
+    "nextMovesTemplate": [
+      { "title": "16oz water now", "reason": "Rehydrate from overnight" },
+      { "title": "8oz before each meal", "reason": "Aids digestion, controls portions" },
+      { "title": "Taper after 6pm", "reason": "Reduces nighttime waking" }
+    ],
+    "ifThenTemplate": [],
+    "whyTemplate": "Morning hydration kickstarts metabolism. Pre-meal water improves satiety. Evening taper protects sleep continuity.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "walk-timing",
+    "title": "When should I walk?",
+    "tags": ["walk", "movement", "timing", "exercise"],
+    "utterances": [
+      "when to walk",
+      "best time to walk",
+      "walking timing",
+      "walk schedule"
+    ],
+    "intent": "workout",
+    "answerTemplate": "Best: 10-15min after each meal (glucose disposal). Also: morning sunlight walk, evening winddown walk. Next meal: {nextMealTime}.",
+    "nextMovesTemplate": [
+      { "time": "{postMealWalk}", "title": "Post-meal walk", "reason": "10-15min after eating" },
+      { "title": "Morning sunlight walk", "reason": "Sets circadian rhythm" },
+      { "title": "Evening winddown walk", "reason": "Lowers cortisol before bed" }
+    ],
+    "ifThenTemplate": [],
+    "whyTemplate": "Post-meal walks improve glucose clearance. Morning light entrains circadian clock. Evening walks aid sleep onset.",
+    "actionsTemplate": [
+      { "id": "INSERT_WALK_15", "label": "Insert Walk" }
+    ]
+  },
+  {
+    "id": "meal-size",
+    "title": "How much should I eat per meal?",
+    "tags": ["portion", "meal size", "amount", "quantity"],
+    "utterances": [
+      "how much to eat",
+      "meal portion size",
+      "how much per meal",
+      "meal amount"
+    ],
+    "intent": "meal_timing",
+    "answerTemplate": "Aim for satiety, not fullness. Protein-first plate (palm-sized protein, fist of veg, cupped hand of carbs). Adjust by hunger patterns between meals.",
+    "nextMovesTemplate": [
+      { "title": "Plate: palm protein, fist veg, cupped carbs", "reason": "Visual portion guide" },
+      { "title": "Eat slowly, stop at 80% full", "reason": "Satiety signal lags 20min" },
+      { "title": "Assess hunger 3h later", "reason": "Too little = hungry early; too much = sluggish" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If hungry <3h after meal", "then": "Increase protein by 20% next time" }
+    ],
+    "whyTemplate": "Portion control isn't about calories — it's about training satiety signals and metabolic flexibility.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "breakfast-skip",
+    "title": "Can I skip breakfast?",
+    "tags": ["skip", "breakfast", "fasting", "omit"],
+    "utterances": [
+      "can i skip breakfast",
+      "skip morning meal",
+      "no breakfast",
+      "omit breakfast"
+    ],
+    "intent": "meal_timing",
+    "answerTemplate": "Yes, if it extends fasting to {fastingHours}h+ and you're not hungry. No, if forcing it causes afternoon binge. Listen to true hunger, not habit.",
+    "nextMovesTemplate": [
+      { "title": "Assess: true hunger or habit?", "reason": "Habit = cortisol alarm, not need" },
+      { "title": "If skipping: break fast at ~{lunchTime}", "reason": "12-1pm window" },
+      { "title": "Ensure first meal is protein-heavy", "reason": "Stabilizes glucose after long fast" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If skipping causes overeating at lunch", "then": "Keep small breakfast — fasting isn't worth binge rebound" }
+    ],
+    "whyTemplate": "Skipping breakfast extends fasting benefits but only if it doesn't cause dysregulated eating later.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "meal-prep-timing",
+    "title": "When should I prep meals?",
+    "tags": ["prep", "meal prep", "cooking", "planning"],
+    "utterances": [
+      "when to meal prep",
+      "meal prep timing",
+      "cooking schedule",
+      "meal planning"
+    ],
+    "intent": "schedule_adjustment",
+    "answerTemplate": "Prep window: evening after dinner or morning before work. Avoid reactive cooking when hungry — decision fatigue causes poor choices. Next meal: {nextMealTime}.",
+    "nextMovesTemplate": [
+      { "title": "Batch prep 2-3 days at once", "reason": "Reduces daily friction" },
+      { "title": "Prep proteins first", "reason": "Most time-consuming, highest leverage" },
+      { "title": "Morning assembly only", "reason": "Quick, low cognitive load" }
+    ],
+    "ifThenTemplate": [],
+    "whyTemplate": "Meal prep when calm (not hungry) eliminates decision fatigue and preserves meal timing consistency.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "alcohol-timing",
+    "title": "When can I drink alcohol?",
+    "tags": ["alcohol", "drinks", "timing", "social"],
+    "utterances": [
+      "when can i drink",
+      "alcohol timing",
+      "drinking schedule",
+      "social drinks"
+    ],
+    "intent": "comfort_meal",
+    "answerTemplate": "Minimize or avoid. If drinking: after protein meal, 4+ hours before bed, limit to 1-2 drinks. Alcohol disrupts REM sleep even in small amounts.",
+    "nextMovesTemplate": [
+      { "title": "Eat protein meal first", "reason": "Slows alcohol absorption" },
+      { "title": "Finish drinks 4+ hours before bed", "reason": "Allows metabolism before sleep" },
+      { "title": "Hydrate: 8oz water per drink", "reason": "Reduces next-day impact" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If sleep quality matters", "then": "Skip alcohol — REM disruption costs more than social benefit" }
+    ],
+    "whyTemplate": "Alcohol fragments sleep architecture and impairs recovery. Even 'moderate' drinking degrades REM quality for 2-3 nights.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "pre-workout-meal",
+    "title": "What to eat before workout?",
+    "tags": ["pre-workout", "fuel", "meal", "training"],
+    "utterances": [
+      "what to eat before workout",
+      "pre-workout meal",
+      "fuel for training",
+      "eat before exercise"
+    ],
+    "intent": "workout",
+    "answerTemplate": "For workouts <45min: train fasted or light snack. For workouts >45min: small meal 90min before (protein + simple carbs). Next workout: {nextWorkoutTime}.",
+    "nextMovesTemplate": [
+      { "title": "If fasted: small protein snack optional", "reason": "10-20g protein" },
+      { "title": "If fed: wait 90min after meal", "reason": "Avoid digestive competition" },
+      { "title": "Train, then eat within 90min post", "reason": "Recovery window" }
+    ],
+    "ifThenTemplate": [],
+    "whyTemplate": "Fasted training enhances fat oxidation for short sessions. Longer/intense sessions need glycogen — fuel 90min pre for digestion.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "post-workout-meal",
+    "title": "What to eat after workout?",
+    "tags": ["post-workout", "recovery", "meal", "training"],
+    "utterances": [
+      "what to eat after workout",
+      "post-workout meal",
+      "recovery food",
+      "eat after training"
+    ],
+    "intent": "workout",
+    "answerTemplate": "Protein + carbs within 90min post-workout. Ratio: 2:1 protein to carbs. Example: chicken + rice, greek yogurt + banana.",
+    "nextMovesTemplate": [
+      { "title": "Protein + carbs within 90min", "reason": "Recovery window" },
+      { "title": "Aim for 25-35g protein", "reason": "Muscle protein synthesis" },
+      { "title": "Simple carbs OK here", "reason": "Glycogen replenishment" }
+    ],
+    "ifThenTemplate": [],
+    "whyTemplate": "Post-workout is the only time simple carbs are metabolically beneficial — they replenish glycogen without insulin resistance risk.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "meal-order-sequence",
+    "title": "What order should I eat food on my plate?",
+    "tags": ["meal order", "eating sequence", "food order"],
+    "utterances": [
+      "what order to eat",
+      "meal eating sequence",
+      "food order on plate",
+      "protein first"
+    ],
+    "intent": "meal_timing",
+    "answerTemplate": "Eat in this order: 1) Protein first, 2) Vegetables, 3) Carbs last. This sequence blunts glucose spike by 30-40%.",
+    "nextMovesTemplate": [
+      { "title": "Protein first (entire portion)", "reason": "Triggers satiety hormones" },
+      { "title": "Vegetables next", "reason": "Fiber slows digestion" },
+      { "title": "Carbs last (if still hungry)", "reason": "Blunted glucose spike" }
+    ],
+    "ifThenTemplate": [],
+    "whyTemplate": "Eating protein first slows gastric emptying and signals satiety before you overeat carbs. Simple resequencing, massive metabolic impact.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "sleep-nap-timing",
+    "title": "Should I nap?",
+    "tags": ["nap", "sleep", "rest", "daytime"],
+    "utterances": [
+      "should i nap",
+      "nap timing",
+      "daytime sleep",
+      "power nap"
+    ],
+    "intent": "sleep",
+    "answerTemplate": "Nap only if sleep debt >3h or extreme fatigue. Keep it 20min max, before 3pm. Current time: {nowLocal}. Sleep quality last night: {sleepQuality}/10.",
+    "nextMovesTemplate": [
+      { "title": "If napping: 20min max, set alarm", "reason": "Avoid deep sleep inertia" },
+      { "title": "Finish nap before 3pm", "reason": "Later naps disrupt nighttime sleep" },
+      { "title": "If after 3pm: skip nap, get sunlight instead", "reason": "Preserve sleep pressure for tonight" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If needing naps daily", "then": "Fix nighttime sleep first — naps mask the root problem" }
+    ],
+    "whyTemplate": "Naps reduce sleep pressure for nighttime. Only use as emergency tool, not daily habit.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "eating-out-strategy",
+    "title": "How do I handle eating out?",
+    "tags": ["restaurant", "eating out", "social", "dining"],
+    "utterances": [
+      "eating out strategy",
+      "restaurant eating",
+      "dining out",
+      "social meals"
+    ],
+    "intent": "meal_timing",
+    "answerTemplate": "Plan ahead: check menu, aim for protein-first meal, stick to meal timing window ({nextMealTime}). Avoid appetizers and refill bread baskets.",
+    "nextMovesTemplate": [
+      { "title": "Order protein entrée, double vegetables", "reason": "Skip starch sides" },
+      { "title": "Eat protein first on plate", "reason": "Sequence matters even at restaurants" },
+      { "title": "Skip dessert or share", "reason": "Restaurant desserts are 2-3x normal portions" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If special occasion", "then": "Enjoy meal, skip alcohol, return to plan next meal — one meal doesn't ruin progress" }
+    ],
+    "whyTemplate": "Restaurant meals are designed for overconsumption. Strategy: protein focus, portion awareness, meal timing consistency.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "travel-meal-timing",
+    "title": "How do I handle meals while traveling?",
+    "tags": ["travel", "timing", "schedule", "trip"],
+    "utterances": [
+      "travel meal timing",
+      "eating while traveling",
+      "trip meal schedule",
+      "travel food strategy"
+    ],
+    "intent": "schedule_adjustment",
+    "answerTemplate": "Prioritize: meal timing windows > food quality. Bring protein snacks (jerky, nuts). Stick to your wake/sleep times to preserve circadian rhythm.",
+    "nextMovesTemplate": [
+      { "title": "Pack protein snacks for gaps", "reason": "Prevents reactive airport food" },
+      { "title": "Maintain meal windows (±1h)", "reason": "Timing > perfect food choices" },
+      { "title": "Resume full protocol day 2 back", "reason": "1-2 day disruption is fine" }
+    ],
+    "ifThenTemplate": [],
+    "whyTemplate": "Travel disrupts routine. Preserve timing and sleep schedule — those maintain the system. Food quality can flex temporarily.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "hunger-vs-craving",
+    "title": "How do I tell hunger from cravings?",
+    "tags": ["hunger", "craving", "appetite", "signals"],
+    "utterances": [
+      "hunger vs craving",
+      "real hunger",
+      "craving difference",
+      "appetite signals"
+    ],
+    "intent": "snack",
+    "answerTemplate": "Hunger: stomach emptiness, gradual onset, flexible food choices. Craving: mouth/brain driven, sudden, specific food fixation. Last meal: {hoursSinceLastMeal}h ago.",
+    "nextMovesTemplate": [
+      { "title": "Ask: would plain chicken satisfy?", "reason": "If yes = hunger; if no = craving" },
+      { "title": "If hunger: eat protein-first meal", "reason": "True physiological need" },
+      { "title": "If craving: drink water, wait 15min", "reason": "Most cravings pass in 10-20min" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If craving persists >30min", "then": "Small treat OK if within treat window — fighting it costs more energy than eating it" }
+    ],
+    "whyTemplate": "Hunger is metabolic need. Cravings are habit, emotion, or hedonic drive. Different problems, different solutions.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "weekend-schedule",
+    "title": "Do I follow the same schedule on weekends?",
+    "tags": ["weekend", "schedule", "consistency", "flexibility"],
+    "utterances": [
+      "weekend schedule",
+      "saturday sunday timing",
+      "weekends different",
+      "weekend meal timing"
+    ],
+    "intent": "schedule_adjustment",
+    "answerTemplate": "Yes, maintain ±1h of weekday timing. Sleep schedule drift >2h causes 'social jet lag' — metabolic disruption equivalent to flying 2 time zones.",
+    "nextMovesTemplate": [
+      { "title": "Wake within 1h of weekday time", "reason": "Preserves circadian rhythm" },
+      { "title": "Maintain meal windows", "reason": "Insulin sensitivity doesn't take weekends off" },
+      { "title": "Flexibility: food choices, not timing", "reason": "When you eat > what you eat" }
+    ],
+    "ifThenTemplate": [],
+    "whyTemplate": "Circadian rhythm doesn't reset weekly. Weekend schedule drift causes Monday grogginess and metabolic dysfunction.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "shift-work-timing",
+    "title": "How do I handle shift work?",
+    "tags": ["shift work", "night shift", "irregular schedule"],
+    "utterances": [
+      "shift work timing",
+      "night shift meals",
+      "irregular work schedule",
+      "rotating shifts"
+    ],
+    "intent": "schedule_adjustment",
+    "answerTemplate": "Anchor to your wake time: meal 1 within 2h of waking, maintain 4-5h spacing. Avoid eating 2-3h before sleep, regardless of clock time.",
+    "nextMovesTemplate": [
+      { "title": "Define 'morning' as your wake time", "reason": "Circadian rhythm is relative to wake" },
+      { "title": "3 meals in your active period", "reason": "Standard spacing rules apply" },
+      { "title": "Fast during your sleep period + 2h before", "reason": "Preserve sleep quality" }
+    ],
+    "ifThenTemplate": [],
+    "whyTemplate": "Shift work is metabolically hard. Consistency within your shifted schedule is the only lever you control.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "meeting-day-meals",
+    "title": "How should I eat on back-to-back meeting days?",
+    "tags": ["schedule", "meeting", "meal timing", "busy day"],
+    "utterances": [
+      "meeting day meals",
+      "back to back meetings food",
+      "busy day meal timing",
+      "no break schedule eating"
+    ],
+    "intent": "schedule_adjustment",
+    "answerTemplate": "Use anchor meals: one protein-focused meal before meetings, one compact lunch window, one recovery dinner. Avoid all-day grazing when calendar pressure is high.",
+    "nextMovesTemplate": [
+      { "title": "Block a 20-30min lunch hold now", "reason": "Protects energy floor" },
+      { "title": "Pre-pack protein + fruit", "reason": "Prevents reactive snack choices" },
+      { "title": "Hydrate between meetings", "reason": "Reduces false hunger" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If lunch gets pushed", "then": "Use a protein fallback snack and resume normal spacing at dinner" }
+    ],
+    "whyTemplate": "Meeting-heavy days reduce decision bandwidth. Pre-anchored meals prevent blood sugar swings and late-day overeating.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "pre-workout-fueling",
+    "title": "Should I eat before a workout?",
+    "tags": ["workout", "fuel", "pre-workout", "meal"],
+    "utterances": [
+      "eat before workout",
+      "pre workout meal",
+      "train fasted or fed",
+      "should i fuel before exercise"
+    ],
+    "intent": "workout",
+    "answerTemplate": "If workout is high intensity or >45min, eat 60-120min before. For light/moderate sessions under 45min, fasted can work if energy is stable.",
+    "nextMovesTemplate": [
+      { "title": "If hard session: 20-30g carbs + protein", "reason": "Performance and recovery support" },
+      { "title": "If light session: hydrate and start", "reason": "Avoid unnecessary intake" },
+      { "title": "Post-workout meal within 90min", "reason": "Refill glycogen + preserve muscle" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If dizzy or weak while fasted", "then": "Stop and take quick carbs, then reassess session intensity" }
+    ],
+    "whyTemplate": "Fueling strategy should match session demand. Under-fueling hard workouts raises stress load and can hurt adherence.",
+    "actionsTemplate": []
+  },
+  {
+    "id": "late-night-hunger",
+    "title": "What do I do if I get hungry late at night?",
+    "tags": ["hunger", "night", "sleep", "snack"],
+    "utterances": [
+      "hungry at night",
+      "late night hunger",
+      "should i eat before bed",
+      "night cravings"
+    ],
+    "intent": "sleep",
+    "answerTemplate": "First check hydration and stress. If true hunger within 2h of bed, use a small protein-focused snack; avoid high sugar or large meals.",
+    "nextMovesTemplate": [
+      { "title": "Drink water and wait 10 minutes", "reason": "Rule out thirst" },
+      { "title": "If still hungry: small protein snack", "reason": "Supports satiety with lower glucose disruption" },
+      { "title": "Set earlier dinner tomorrow", "reason": "Prevents repeat late-night hunger" }
+    ],
+    "ifThenTemplate": [
+      { "if": "If this happens 3+ nights/week", "then": "Increase dinner protein/fiber and review daytime meal spacing" }
+    ],
+    "whyTemplate": "Late eating can impair sleep, but ignoring true hunger can also fragment sleep. Small, strategic intake is the middle path.",
+    "actionsTemplate": []
+  }
+]

@@ -49,7 +49,7 @@ export default function SocialScreen() {
           }}
         >
           <LinearGradient
-            colors={['#00ff88', '#14967F']}
+            colors={['#22D3EE', '#1E9BA9']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.addButtonGradient}
@@ -90,7 +90,7 @@ export default function SocialScreen() {
           }}
         >
           <LinearGradient
-            colors={['#00ff88', '#14967F']}
+            colors={['#22D3EE', '#1E9BA9']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.addButtonGradient}
@@ -296,7 +296,7 @@ function ChallengeCard({
       <View style={styles.progressContainer}>
         <View style={styles.progressBar}>
           <LinearGradient
-            colors={isCompleted ? ['#FFD700', '#FFA500'] : ['#00ff88', '#14967F']}
+            colors={isCompleted ? ['#FFD700', '#FFA500'] : ['#22D3EE', '#1E9BA9']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={[styles.progressFill, { width: `${progressPercent}%` }]}
@@ -470,7 +470,7 @@ function CreateChallengeModal({
             
             <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
               <LinearGradient
-                colors={['#00ff88', '#14967F']}
+                colors={['#22D3EE', '#1E9BA9']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.submitButtonGradient}
@@ -539,7 +539,7 @@ function AddFriendModal({
             
             <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
               <LinearGradient
-                colors={['#00ff88', '#14967F']}
+                colors={['#22D3EE', '#1E9BA9']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.submitButtonGradient}
@@ -571,7 +571,7 @@ const styles = StyleSheet.create({
   },
   activeTab: {
     borderBottomWidth: 2,
-    borderBottomColor: '#00ff88',
+    borderBottomColor: '#22D3EE',
   },
   tabText: {
     color: '#666',
@@ -579,7 +579,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   activeTabText: {
-    color: '#00ff88',
+    color: '#22D3EE',
   },
   scrollView: {
     flex: 1,
@@ -671,7 +671,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#666',
   },
   onlineStatus: {
-    backgroundColor: '#00ff88',
+    backgroundColor: '#22D3EE',
   },
   friendStats: {
     flexDirection: 'row',
@@ -750,7 +750,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   participantProgress: {
-    color: '#00ff88',
+    color: '#22D3EE',
     fontSize: 14,
     fontWeight: '700',
   },
@@ -862,8 +862,8 @@ const styles = StyleSheet.create({
     borderColor: '#333',
   },
   selectedType: {
-    backgroundColor: '#00ff88',
-    borderColor: '#00ff88',
+    backgroundColor: '#22D3EE',
+    borderColor: '#22D3EE',
   },
   typeButtonText: {
     color: '#888',

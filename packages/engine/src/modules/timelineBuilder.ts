@@ -49,7 +49,9 @@ export function buildTimeline(profile: UserProfile, dayState: DayState): Timelin
     const mealType = selectMealType(index, dayState);
     const meal: MealEvent = {
       type: 'meal',
+      status: 'PLANNED',
       time,
+      source: 'AUTO',
       mealType,
     };
     events.push(meal);
@@ -57,7 +59,9 @@ export function buildTimeline(profile: UserProfile, dayState: DayState): Timelin
     if (shouldAddPreMealActivation(dayState.stressLevel, mealType)) {
       const activation: ActivationEvent = {
         type: 'activation',
+        status: 'PLANNED',
         time: addMinutes(time, -10),
+        source: 'AUTO',
         activationType: 'pre-meal',
         duration: 3,
       };
@@ -84,7 +88,9 @@ export function buildTimeline(profile: UserProfile, dayState: DayState): Timelin
     if (!isTimeBlocked(time, dayState.constraints)) {
       const caffeine: CaffeineEvent = {
         type: 'caffeine',
+        status: 'PLANNED',
         time,
+        source: 'AUTO',
         caffeineType: 'coffee',
         amount: 200,
       };
@@ -106,7 +112,9 @@ export function buildTimeline(profile: UserProfile, dayState: DayState): Timelin
       
       const walk: WalkEvent = {
         type: 'walk',
+        status: 'PLANNED',
         time: walkTime,
+        source: 'AUTO',
         duration,
         hrZone,
         postMeal: true,
@@ -116,9 +124,11 @@ export function buildTimeline(profile: UserProfile, dayState: DayState): Timelin
       if (shouldAddPreWalkActivation(duration, dayState.dayMode)) {
         const activation: ActivationEvent = {
           type: 'activation',
+          status: 'PLANNED',
           time: addMinutes(walkTime, -5),
+          source: 'AUTO',
+          duration: 3,
           activationType: 'pre-walk',
-          duration: 5,
         };
         events.push(activation);
       }
@@ -129,9 +139,11 @@ export function buildTimeline(profile: UserProfile, dayState: DayState): Timelin
   if (!isTimeBlocked(middayTime, dayState.constraints)) {
     const activation: ActivationEvent = {
       type: 'activation',
+      status: 'PLANNED',
       time: middayTime,
+      source: 'AUTO',
+      duration: 10,
       activationType: 'midday-reset',
-      duration: 8,
     };
     events.push(activation);
   }
@@ -142,9 +154,11 @@ export function buildTimeline(profile: UserProfile, dayState: DayState): Timelin
   const nightRoutineTime = getNightRoutineTime(targetSleepTime);
   const activation: ActivationEvent = {
     type: 'activation',
+    status: 'PLANNED',
     time: nightRoutineTime,
+    source: 'AUTO',
+    duration: 20,
     activationType: 'night-routine',
-    duration: 10,
   };
   events.push(activation);
   

@@ -67,6 +67,14 @@ export type HRZone = z.infer<typeof HRZoneSchema>;
 export const ActivationTypeSchema = z.enum(['pre-walk', 'pre-meal', 'midday-reset', 'night-routine', 'posture-core']);
 export type ActivationType = z.infer<typeof ActivationTypeSchema>;
 
+// Canonical Clock Time
+export const ClockTimeSchema = z.object({
+  hour: z.number().int().min(1).max(12),
+  minute: z.number().int().min(0).max(59),
+  period: z.enum(['AM', 'PM']),
+});
+export type ClockTime = z.infer<typeof ClockTimeSchema>;
+
 // Events (now with source, status, and category tracking)
 export const MealEventSchema = z.object({
   type: z.literal('meal'),
@@ -159,10 +167,25 @@ export const ConstraintBlockSchema = z.object({
 });
 export type ConstraintBlock = z.infer<typeof ConstraintBlockSchema>;
 
+// Plan Step (moved before DayStateSchema to fix forward reference)
+export const PlanStepSchema = z.object({
+  id: z.string(),
+  time: z.date(),
+  event: EventSchema,
+  reasoning: z.string(),
+  isCompleted: z.boolean().default(false),
+  isNext: z.boolean().default(false),
+});
+export type PlanStep = z.infer<typeof PlanStepSchema>;
+
 // User Profile
 export const UserProfileSchema = z.object({
   wakeTime: z.string().regex(/^\d{2}:\d{2}$/),
   sleepTime: z.string().regex(/^\d{2}:\d{2}$/),
+  wakeClockTime: ClockTimeSchema.optional(),
+  sleepClockTime: ClockTimeSchema.optional(),
+  wakeMin: z.number().min(0).max(1439).optional(),
+  sleepMin: z.number().min(0).max(1439).optional(),
   preferredFastingHours: z.number().min(0).max(24),
   caffeineToleranceLow: z.boolean(),
   stressBaseline: z.number().min(1).max(10),
@@ -175,7 +198,15 @@ export const UserProfileSchema = z.object({
   // Work schedule
   workStartTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   workEndTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  workStartClockTime: ClockTimeSchema.optional(),
+  workEndClockTime: ClockTimeSchema.optional(),
+  workStartMin: z.number().min(0).max(1439).optional(),
+  workEndMin: z.number().min(0).max(1439).optional(),
   commuteDuration: z.number().min(0).max(180).optional(), // minutes
+  lunchTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  lunchClockTime: ClockTimeSchema.optional(),
+  lunchStartMin: z.number().min(0).max(1439).optional(),
+  lunchDurationMin: z.number().min(15).max(120).optional(),
   // Exercise preferences
   typicalExerciseTimes: z.array(z.string().regex(/^\d{2}:\d{2}$/)).optional(),
   exerciseDays: z.array(z.number().min(0).max(6)).optional(), // 0=Sunday, 6=Saturday
@@ -183,6 +214,7 @@ export const UserProfileSchema = z.object({
   dietFoundation: DietFoundationSchema.default('BALANCED'),
   // Comfort meal preferences
   allowComfortWindow: z.boolean().default(true),
+  useLearnedRhythm: z.boolean().default(true),
   comfortWindowPreferredTime: z.string().regex(/^\d{2}:\d{2}$/).optional(), // e.g., "15:00"
   // Weekend schedule (different from weekday)
   weekendWakeTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
@@ -231,17 +263,6 @@ export const DayStateSchema = z.object({
   }).optional(),
 });
 export type DayState = z.infer<typeof DayStateSchema>;
-
-// Plan Step
-export const PlanStepSchema = z.object({
-  id: z.string(),
-  time: z.date(),
-  event: EventSchema,
-  reasoning: z.string(),
-  isCompleted: z.boolean().default(false),
-  isNext: z.boolean().default(false),
-});
-export type PlanStep = z.infer<typeof PlanStepSchema>;
 
 // Plan Output (extended with recompute hints)
 export const PlanOutputSchema = z.object({
@@ -323,12 +344,26 @@ export type EngineOutput = z.infer<typeof EngineOutputSchema>;
 // Schedule Item (for full-day plan generation)
 export const ScheduleItemSchema = z.object({
   id: z.string(),
-  type: z.enum(['wake', 'sleep', 'work', 'meal', 'workout', 'walk', 'focus', 'break', 'prep', 'meeting', 'hydration', 'stretch', 'winddown', 'custom']),
+  type: z.enum(['wake', 'sleep', 'work', 'lunch', 'meal', 'snack', 'workout', 'walk', 'focus', 'break', 'prep', 'meeting', 'hydration', 'stretch', 'winddown', 'commute', 'recovery', 'caffeine', 'custom']),
   title: z.string(),
+  startTime: ClockTimeSchema.optional(),
+  endTime: ClockTimeSchema.nullable().optional(),
+  startMin: z.number().min(0).max(1439).optional(),
+  endMin: z.number().min(0).max(1439).optional(),
+  durationMin: z.number().min(1).optional(),
   startISO: z.string(), // ISO datetime string
   endISO: z.string(), // ISO datetime string
-  fixed: z.boolean().default(false), // locked by user or settings
-  source: z.enum(['settings', 'user', 'engine']).default('engine'),
+  fixed: z.boolean().default(false), // legacy compatibility
+  isSystemAnchor: z.boolean().optional().default(false),
+  isFixedAnchor: z.boolean().optional().default(false),
+  locked: z.boolean().optional(),
+  deletable: z.boolean().optional(),
+  status: z.enum(['planned', 'actual', 'skipped', 'adjusted', 'auto_adjusted']).default('planned'),
+  source: z.enum(['system', 'user', 'advisor', 'generated', 'user_added', 'advisor_added', 'imported', 'settings', 'engine']).default('system'),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+  completedAt: z.string().optional(),
+  origin: z.enum(['planned', 'actual']).optional(),
   notes: z.string().optional(),
   meta: z.record(z.any()).optional(), // flexible metadata
 });

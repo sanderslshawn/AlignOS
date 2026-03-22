@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Switch } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usePlanStore } from '../store/planStore';
 import type { UserProfile, DayMode, DietFoundation } from '@physiology-engine/shared';
+import { LEARN_ALIGNOS_TOUR_KEY } from '../hooks/useTourProgress';
 
 export default function OnboardingScreen({ navigation }: any) {
   const { saveProfile } = usePlanStore();
@@ -22,6 +24,8 @@ export default function OnboardingScreen({ navigation }: any) {
   const [workStartTime, setWorkStartTime] = useState('');
   const [workEndTime, setWorkEndTime] = useState('');
   const [commuteDuration, setCommuteDuration] = useState('');
+  const [lunchTime, setLunchTime] = useState('12:30');
+  const [lunchDurationMin, setLunchDurationMin] = useState('30');
 
   const handleComplete = async () => {
     const profile: UserProfile = {
@@ -39,10 +43,22 @@ export default function OnboardingScreen({ navigation }: any) {
       workStartTime: workStartTime || undefined,
       workEndTime: workEndTime || undefined,
       commuteDuration: commuteDuration ? parseInt(commuteDuration) : undefined,
+      lunchTime: lunchTime || undefined,
+      lunchDurationMin: parseInt(lunchDurationMin) || 30,
+      fitnessGoal: 'GENERAL_HEALTH',
+      useLearnedRhythm: true,
+      useWeekendSchedule: false,
     };
     
     await saveProfile(profile);
-    navigation.navigate('TodaySetup');
+
+    const hasCompletedTour = await AsyncStorage.getItem(LEARN_ALIGNOS_TOUR_KEY);
+    if (hasCompletedTour === 'true') {
+      navigation.navigate('TodaySetup');
+      return;
+    }
+
+    navigation.navigate('LearnAlignOSTour', { nextRoute: 'TodaySetup' });
   };
 
   const dayModes: DayMode[] = ['tight', 'flex', 'recovery', 'high-output', 'low-output'];
@@ -50,6 +66,14 @@ export default function OnboardingScreen({ navigation }: any) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.topLinksRow}>
+        <TouchableOpacity style={styles.helpLink} onPress={() => navigation.navigate('HelpCenter')}>
+          <Text style={styles.helpLinkText}>Open Help Center</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.helpLink} onPress={() => navigation.navigate('LearnAlignOSTour')}>
+          <Text style={styles.helpLinkText}>Learn AlignOS Tour</Text>
+        </TouchableOpacity>
+      </View>
       <Text style={styles.title}>Setup Your Profile</Text>
       <Text style={styles.subtitle}>Step {step} of 4</Text>
 
@@ -224,6 +248,25 @@ export default function OnboardingScreen({ navigation }: any) {
             placeholderTextColor="#666"
           />
 
+          <Text style={styles.label}>Lunch Time</Text>
+          <TextInput
+            style={styles.input}
+            value={lunchTime}
+            onChangeText={setLunchTime}
+            placeholder="12:30"
+            placeholderTextColor="#666"
+          />
+
+          <Text style={styles.label}>Lunch Duration (minutes)</Text>
+          <TextInput
+            style={styles.input}
+            value={lunchDurationMin}
+            onChangeText={setLunchDurationMin}
+            keyboardType="numeric"
+            placeholder="30"
+            placeholderTextColor="#666"
+          />
+
           <Text style={styles.hint}>💡 You can add specific meetings and exercise times each day in the daily setup</Text>
 
           <View style={styles.buttonRow}>
@@ -258,6 +301,26 @@ const styles = StyleSheet.create({
     color: '#666',
     fontSize: 16,
     marginBottom: 32,
+  },
+  topLinksRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  helpLink: {
+    alignSelf: 'auto',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: '#22D3EE',
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  helpLinkText: {
+    color: '#22D3EE',
+    fontSize: 12,
+    fontWeight: '600',
   },
   stepContainer: {
     flex: 1,

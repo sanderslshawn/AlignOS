@@ -48,9 +48,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     
     try {
       console.log('Generating plan with:', { userProfile, dayState });
-      const plan = generatePlan(userProfile, dayState);
+      const plan = generatePlan({
+        now: new Date(),
+        profile: userProfile,
+        dayState,
+        options: {
+          forceRecompute: false,
+          stalenessThresholdMinutes: 15,
+        },
+      });
       console.log('Plan generated:', plan);
-      set({ currentPlan: plan });
+      set({ currentPlan: plan as any });
       get().saveToStorage();
     } catch (error) {
       console.error('Error generating plan:', error);

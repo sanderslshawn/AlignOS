@@ -165,7 +165,7 @@ export function suggestFlushWalkAfterComfort(
   return {
     time: walkTime,
     duration: 25,
-    reasoning: 'Flush walk after comfort meal - helps close window and smooth energy',
+    reasoning: 'flush walk after comfort meal - helps close window and smooth energy',
   };
 }
 

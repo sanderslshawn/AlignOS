@@ -91,8 +91,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const biometricStore = useBiometricStore.getState();
     const latestRecovery = biometricStore.recoveryScores[0];
 
-    // Get AI response
-    const advice = analyzeQuery({
+    // Get AI response (now async with new AI Advisor)
+    const advice = await analyzeQuery({
       query: text,
       profile,
       currentPlan,

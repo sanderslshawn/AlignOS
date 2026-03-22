@@ -15,11 +15,12 @@ import {
   generateNextWeekRecommendations,
   type WeeklySummary 
 } from '../utils/weeklySummary';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
+import { useTheme, Card, SectionTitle, StatRow, PrimaryButton, Chip, AppIcon, formatPercent, formatNumber } from '@physiology-engine/ui';
 
 export default function WeeklySummaryScreen() {
   const { todayEntries } = usePlanStore();
+  const { colors, typography, spacing, radius } = useTheme();
   const [summary, setSummary] = useState<WeeklySummary | null>(null);
   const [recommendations, setRecommendations] = useState<string[]>([]);
   
@@ -51,247 +52,239 @@ export default function WeeklySummaryScreen() {
   
   if (!summary) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Analyzing your week...</Text>
+          <AppIcon name="chart" size={48} color={colors.textMuted} />
+          <Text style={[typography.bodyL, { color: colors.textSecondary, marginTop: spacing.lg }]}>
+            Analyzing your week...
+          </Text>
         </View>
       </View>
     );
   }
   
-  const getRatingColor = (rating: number): [string, string, string] => {
-    if (rating >= 90) return ['#00ff88', '#14967F', '#0a7a5a'];
-    if (rating >= 75) return ['#00b4d8', '#0077b6', '#03045e'];
-    if (rating >= 60) return ['#ffd60a', '#ffb703', '#fb8500'];
-    return ['#ff6b6b', '#ee5a6f', '#c44569'];
-  };
-  
-  const ratingGradient = getRatingColor(summary.weekRating);
-  
   return (
-    <View style={styles.container}>
-      {/* Header with Overall Rating */}
-      <LinearGradient
-        colors={ratingGradient}
-        style={styles.headerGradient}
-      >
-        <Text style={styles.headerTitle}>📊 Weekly Summary</Text>
-        <Text style={styles.weekRange}>
-          {summary.weekStart} to {summary.weekEnd}
-        </Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Header */}
+      <View style={[styles.header, { backgroundColor: colors.surfaceElevated, paddingHorizontal: spacing.lg }]}>
+        <SectionTitle 
+          title="Weekly Summary" 
+          subtitle={`${summary.weekStart} to ${summary.weekEnd}`} 
+        />
         
-        <View style={styles.ratingCircle}>
-          <Text style={styles.ratingNumber}>{summary.weekRating}</Text>
-          <Text style={styles.ratingLabel}>/ 100</Text>
+        <View style={styles.ratingContainer}>
+          <View style={[
+            styles.ratingCircle,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.accentPrimary,
+            }
+          ]}>
+            <Text style={[typography.titleXL, { color: colors.textPrimary, fontSize: 42 }]}>
+              {formatNumber(summary.weekRating)}
+            </Text>
+            <Text style={[typography.caption, { color: colors.textMuted }]}>
+              / 100
+            </Text>
+          </View>
+          
+          <Text style={[typography.bodyM, { color: colors.textSecondary, marginTop: spacing.md }]}>
+            {formatPercent(summary.completionRate)} Activity Completion
+          </Text>
         </View>
-        
-        <Text style={styles.completionText}>
-          {summary.completionRate}% Activity Completion
-        </Text>
-      </LinearGradient>
+      </View>
       
-      <ScrollView style={styles.scrollView}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={{ padding: spacing.lg }}>
         {/* Achievements */}
         {summary.achievements.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🏆 Achievements</Text>
+          <View style={{ marginBottom: spacing.xl }}>
+            <SectionTitle title="Achievements" />
             {summary.achievements.map((achievement, index) => (
-              <View key={index} style={styles.achievementCard}>
-                <Text style={styles.achievementText}>{achievement}</Text>
-              </View>
+              <Card key={index} style={{ marginBottom: spacing.md }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                  <AppIcon name="trophy" size={20} color={colors.accentPrimary} />
+                  <Text style={[
+                    typography.bodyM,
+                    {
+                      color: colors.textPrimary,
+                      marginLeft: spacing.md,
+                      flex: 1,
+                      lineHeight: 22,
+                    }
+                  ]}>
+                    {achievement}
+                  </Text>
+                </View>
+              </Card>
             ))}
           </View>
         )}
         
         {/* Stats Grid */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📈 Statistics</Text>
+        <View style={{ marginBottom: spacing.xl }}>
+          <SectionTitle title="Statistics" />
           
           {/* Meals */}
-          <View style={styles.statCard}>
-            <Text style={styles.statCardTitle}>🍽️ Meal Timing</Text>
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>On Time</Text>
-              <Text style={styles.statValue}>
-                {summary.mealStats.onTime}/{summary.mealStats.total}
+          <Card style={{ marginBottom: spacing.md }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md }}>
+              <AppIcon name="meal" size={20} color={colors.textSecondary} />
+              <Text style={[typography.bodyL, { color: colors.textPrimary, marginLeft: spacing.sm, fontWeight: '600' }]}>
+                Meal Timing
               </Text>
             </View>
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>Avg Delay</Text>
-              <Text style={styles.statValue}>{summary.mealStats.averageDelay} min</Text>
-            </View>
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>Skipped</Text>
-              <Text style={[styles.statValue, summary.mealStats.skipped > 2 && styles.statWarning]}>
-                {summary.mealStats.skipped}
-              </Text>
-            </View>
-          </View>
+            <StatRow label="On Time" value={`${summary.mealStats.onTime}/${summary.mealStats.total}`} />
+            <StatRow label="Avg Delay" value={`${formatNumber(summary.mealStats.averageDelay)} min`} />
+            <StatRow 
+              label="Skipped" 
+              value={formatNumber(summary.mealStats.skipped)}
+            />
+          </Card>
           
           {/* Workouts */}
-          <View style={styles.statCard}>
-            <Text style={styles.statCardTitle}>💪 Workouts</Text>
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>Completed</Text>
-              <Text style={styles.statValue}>
-                {summary.workoutStats.completed}/{summary.workoutStats.total}
+          <Card style={{ marginBottom: spacing.md }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md }}>
+              <AppIcon name="workout" size={20} color={colors.textSecondary} />
+              <Text style={[typography.bodyL, { color: colors.textPrimary, marginLeft: spacing.sm, fontWeight: '600' }]}>
+                Workouts
               </Text>
             </View>
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>Total Time</Text>
-              <Text style={styles.statValue}>{summary.workoutStats.totalMinutes} min</Text>
-            </View>
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>Avg Intensity</Text>
-              <Text style={styles.statValue}>{summary.workoutStats.averageIntensity}</Text>
-            </View>
-          </View>
+            <StatRow label="Completed" value={`${summary.workoutStats.completed}/${summary.workoutStats.total}`} />
+            <StatRow label="Total Time" value={`${formatNumber(summary.workoutStats.totalMinutes)} min`} />
+            <StatRow label="Avg Intensity" value={summary.workoutStats.averageIntensity} />
+          </Card>
           
           {/* Walks */}
-          <View style={styles.statCard}>
-            <Text style={styles.statCardTitle}>🚶 Walks</Text>
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>Completed</Text>
-              <Text style={styles.statValue}>
-                {summary.walkStats.completed}/{summary.walkStats.total}
+          <Card style={{ marginBottom: spacing.md }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md }}>
+              <AppIcon name="walk" size={20} color={colors.textSecondary} />
+              <Text style={[typography.bodyL, { color: colors.textPrimary, marginLeft: spacing.sm, fontWeight: '600' }]}>
+                Walks
               </Text>
             </View>
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>Post-Meal</Text>
-              <Text style={styles.statValue}>{summary.walkStats.postMealWalks}</Text>
-            </View>
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>Total Time</Text>
-              <Text style={styles.statValue}>{summary.walkStats.totalMinutes} min</Text>
-            </View>
-          </View>
+            <StatRow label="Completed" value={`${summary.walkStats.completed}/${summary.walkStats.total}`} />
+            <StatRow label="Post-Meal" value={formatNumber(summary.walkStats.postMealWalks)} />
+            <StatRow label="Total Time" value={`${formatNumber(summary.walkStats.totalMinutes)} min`} />
+          </Card>
           
           {/* Sleep */}
-          <View style={styles.statCard}>
-            <Text style={styles.statCardTitle}>😴 Sleep</Text>
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>Avg Hours</Text>
-              <Text style={styles.statValue}>{summary.sleepStats.averageHours.toFixed(1)}h</Text>
+          <Card style={{ marginBottom: spacing.md }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md }}>
+              <AppIcon name="sleep" size={20} color={colors.textSecondary} />
+              <Text style={[typography.bodyL, { color: colors.textPrimary, marginLeft: spacing.sm, fontWeight: '600' }]}>
+                Sleep
+              </Text>
             </View>
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>Bedtime</Text>
-              <Text style={styles.statValue}>{summary.sleepStats.averageBedtime}</Text>
-            </View>
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>Consistency</Text>
-              <Text style={styles.statValue}>{summary.sleepStats.consistency}%</Text>
-            </View>
-          </View>
+            <StatRow label="Avg Hours" value={`${summary.sleepStats.averageHours.toFixed(1)}h`} />
+            <StatRow label="Bedtime" value={summary.sleepStats.averageBedtime} />
+            <StatRow label="Consistency" value={formatPercent(summary.sleepStats.consistency)} />
+          </Card>
           
           {/* Habits */}
           {summary.habitStats.totalHabits > 0 && (
-            <View style={styles.statCard}>
-              <Text style={styles.statCardTitle}>📋 Habits</Text>
-              <View style={styles.statRow}>
-                <Text style={styles.statLabel}>Total Tracked</Text>
-                <Text style={styles.statValue}>{summary.habitStats.totalHabits}</Text>
-              </View>
-              <View style={styles.statRow}>
-                <Text style={styles.statLabel}>Completion</Text>
-                <Text style={styles.statValue}>{summary.habitStats.averageCompletionRate}%</Text>
-              </View>
-              <View style={styles.statRow}>
-                <Text style={styles.statLabel}>Top Habit</Text>
-                <Text style={[styles.statValue, { fontSize: 13 }]}>
-                  {summary.habitStats.topHabit}
+            <Card style={{ marginBottom: spacing.md }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md }}>
+                <AppIcon name="check" size={20} color={colors.textSecondary} />
+                <Text style={[typography.bodyL, { color: colors.textPrimary, marginLeft: spacing.sm, fontWeight: '600' }]}>
+                  Habits
                 </Text>
               </View>
-            </View>
+              <StatRow label="Total Tracked" value={formatNumber(summary.habitStats.totalHabits)} />
+              <StatRow label="Completion" value={formatPercent(summary.habitStats.averageCompletionRate)} />
+              <StatRow label="Top Habit" value={summary.habitStats.topHabit} />
+            </Card>
           )}
         </View>
         
         {/* Energy Insights */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>⚡ Energy Insights</Text>
-          <View style={styles.energyCard}>
-            <View style={styles.energyRow}>
-              <Text style={styles.energyLabel}>🌅 Morning</Text>
-              <View style={styles.energyBar}>
-                <View
-                  style={[
-                    styles.energyFill,
-                    { width: `${summary.energyInsights.averageMorningEnergy}%` },
-                    { backgroundColor: '#00ff88' },
-                  ]}
-                />
-              </View>
-              <Text style={styles.energyValue}>{summary.energyInsights.averageMorningEnergy}%</Text>
-            </View>
-            <View style={styles.energyRow}>
-              <Text style={styles.energyLabel}>☀️ Afternoon</Text>
-              <View style={styles.energyBar}>
-                <View
-                  style={[
-                    styles.energyFill,
-                    { width: `${summary.energyInsights.averageAfternoonEnergy}%` },
-                    { backgroundColor: '#ffd60a' },
-                  ]}
-                />
-              </View>
-              <Text style={styles.energyValue}>
-                {summary.energyInsights.averageAfternoonEnergy}%
+        <View style={{ marginBottom: spacing.xl }}>
+          <SectionTitle title="Energy Insights" />
+          <Card>
+            <EnergyBar
+              label="Morning"
+              value={summary.energyInsights.averageMorningEnergy}
+              icon="sun"
+            />
+            <EnergyBar
+              label="Afternoon"
+              value={summary.energyInsights.averageAfternoonEnergy}
+              icon="sun"
+            />
+            <EnergyBar
+              label="Evening"
+              value={summary.energyInsights.averageEveningEnergy}
+              icon="moon"
+            />
+            <View style={[
+              styles.peakWindow,
+              {
+                backgroundColor: colors.accentSoft,
+                borderRadius: radius.md,
+                padding: spacing.md,
+                marginTop: spacing.lg,
+              }
+            ]}>
+              <AppIcon name="flame" size={16} color={colors.accentPrimary} />
+              <Text style={[typography.bodyM, { color: colors.accentPrimary, marginLeft: spacing.sm, fontWeight: '600' }]}>
+                Peak: {summary.energyInsights.peakPerformanceWindow}
               </Text>
             </View>
-            <View style={styles.energyRow}>
-              <Text style={styles.energyLabel}>🌙 Evening</Text>
-              <View style={styles.energyBar}>
-                <View
-                  style={[
-                    styles.energyFill,
-                    { width: `${summary.energyInsights.averageEveningEnergy}%` },
-                    { backgroundColor: '#9d4edd' },
-                  ]}
-                />
-              </View>
-              <Text style={styles.energyValue}>{summary.energyInsights.averageEveningEnergy}%</Text>
-            </View>
-            <Text style={styles.peakWindow}>
-              🎯 Peak Performance: {summary.energyInsights.peakPerformanceWindow}
-            </Text>
-          </View>
+          </Card>
         </View>
         
         {/* Areas for Improvement */}
         {summary.areasForImprovement.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>📈 Areas for Improvement</Text>
+          <View style={{ marginBottom: spacing.xl }}>
+            <SectionTitle title="Areas for Improvement" />
             {summary.areasForImprovement.map((area, index) => (
-              <View key={index} style={styles.improvementCard}>
-                <Text style={styles.improvementText}>{area}</Text>
-              </View>
+              <Card key={index} style={{ marginBottom: spacing.md }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                  <AppIcon name="alert" size={20} color={colors.warning} />
+                  <Text style={[
+                    typography.bodyM,
+                    {
+                      color: colors.textPrimary,
+                      marginLeft: spacing.md,
+                      flex: 1,
+                      lineHeight: 22,
+                    }
+                  ]}>
+                    {area}
+                  </Text>
+                </View>
+              </Card>
             ))}
           </View>
         )}
         
         {/* Next Week Recommendations */}
         {recommendations.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>💡 Next Week Recommendations</Text>
+          <View style={{ marginBottom: spacing.xl }}>
+            <SectionTitle title="Next Week Recommendations" />
             {recommendations.map((rec, index) => (
-              <View key={index} style={styles.recommendationCard}>
-                <Text style={styles.recommendationText}>{rec}</Text>
-              </View>
+              <Card key={index} style={{ marginBottom: spacing.md }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                  <AppIcon name="sparkles" size={20} color={colors.accentPrimary} />
+                  <Text style={[
+                    typography.bodyM,
+                    {
+                      color: colors.textPrimary,
+                      marginLeft: spacing.md,
+                      flex: 1,
+                      lineHeight: 22,
+                    }
+                  ]}>
+                    {rec}
+                  </Text>
+                </View>
+              </Card>
             ))}
           </View>
         )}
         
         {/* Share Button */}
-        <TouchableOpacity
-          style={styles.shareButton}
-          onPress={handleShare}
-        >
-          <LinearGradient
-            colors={['#00ff88', '#14967F', '#0a7a5a']}
-            style={styles.shareGradient}
-          >
-            <Text style={styles.shareButtonText}>🚀 Share Your Week</Text>
-          </LinearGradient>
-        </TouchableOpacity>
+        <PrimaryButton onPress={handleShare}>
+          Share Your Week
+        </PrimaryButton>
         
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -299,204 +292,82 @@ export default function WeeklySummaryScreen() {
   );
 }
 
+function EnergyBar({ label, value, icon }: { label: string; value: number; icon: any }) {
+  const { colors, typography, spacing, radius } = useTheme();
+  
+  return (
+    <View style={{ marginBottom: spacing.md }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.xs }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <AppIcon name={icon} size={14} color={colors.textSecondary} />
+          <Text style={[typography.bodyS, { color: colors.textSecondary, marginLeft: spacing.xs }]}>
+            {label}
+          </Text>
+        </View>
+        <Text style={[typography.bodyS, { color: colors.textPrimary, fontWeight: '600' }]}>
+          {formatPercent(value)}
+        </Text>
+      </View>
+      <View style={[
+        styles.energyBarTrack,
+        {
+          backgroundColor: colors.surface,
+          borderRadius: radius.sm,
+        }
+      ]}>
+        <View
+          style={[
+            styles.energyBarFill,
+            {
+              width: `${value}%`,
+              backgroundColor: colors.accentPrimary,
+              borderRadius: radius.sm,
+            }
+          ]}
+        />
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingText: {
-    color: '#888',
-    fontSize: 16,
-  },
-  headerGradient: {
-    padding: 24,
+  header: {
     paddingTop: 60,
+    paddingBottom: 24,
+  },
+  ratingContainer: {
     alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 4,
-  },
-  weekRange: {
-    fontSize: 14,
-    color: '#0a7a5a',
-    marginBottom: 20,
+    marginTop: 20,
   },
   ratingCircle: {
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderWidth: 3,
     justifyContent: 'center',
     alignItems: 'center',
-    marginVertical: 16,
-  },
-  ratingNumber: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#000',
-  },
-  ratingLabel: {
-    fontSize: 16,
-    color: '#0a7a5a',
-  },
-  completionText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    marginTop: 8,
   },
   scrollView: {
     flex: 1,
-    padding: 20,
   },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 12,
-  },
-  achievementCard: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: '#00ff88',
-  },
-  achievementText: {
-    color: '#fff',
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  statCard: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  statCardTitle: {
-    fontSize: 17,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 12,
-  },
-  statRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  statLabel: {
-    fontSize: 15,
-    color: '#888',
-  },
-  statValue: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#00ff88',
-  },
-  statWarning: {
-    color: '#ff6b6b',
-  },
-  energyCard: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  energyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  energyLabel: {
-    fontSize: 14,
-    color: '#fff',
-    width: 100,
-  },
-  energyBar: {
-    flex: 1,
-    height: 20,
-    backgroundColor: '#333',
-    borderRadius: 10,
+  energyBarTrack: {
+    height: 8,
     overflow: 'hidden',
-    marginHorizontal: 12,
   },
-  energyFill: {
+  energyBarFill: {
     height: '100%',
-    borderRadius: 10,
-  },
-  energyValue: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#fff',
-    width: 40,
-    textAlign: 'right',
   },
   peakWindow: {
-    fontSize: 14,
-    color: '#00ff88',
-    fontWeight: '600',
-    marginTop: 12,
-    textAlign: 'center',
-  },
-  improvementCard: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: '#ffd60a',
-  },
-  improvementText: {
-    color: '#fff',
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  recommendationCard: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: '#00b4d8',
-  },
-  recommendationText: {
-    color: '#fff',
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  shareButton: {
-    marginTop: 12,
-    borderRadius: 14,
-    overflow: 'hidden',
-    shadowColor: '#00ff88',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 10,
-  },
-  shareGradient: {
-    padding: 18,
+    flexDirection: 'row',
     alignItems: 'center',
-  },
-  shareButtonText: {
-    color: '#000',
-    fontSize: 17,
-    fontWeight: 'bold',
+    justifyContent: 'center',
   },
 });

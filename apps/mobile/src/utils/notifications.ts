@@ -29,6 +29,12 @@ export interface NotificationSettings {
   hasPermission: boolean;
 }
 
+export interface NotificationDebugInfo {
+  count: number;
+  hasPermission: boolean;
+  identifiers: string[];
+}
+
 const DEFAULT_SETTINGS: NotificationSettings = {
   enabled: false,
   mealReminders: true,
@@ -46,6 +52,23 @@ const DEFAULT_SETTINGS: NotificationSettings = {
 };
 
 const STORAGE_KEY = '@notification_settings';
+
+async function scheduleAtTime(
+  date: Date,
+  content: Notifications.NotificationContentInput
+): Promise<void> {
+  const seconds = Math.floor((date.getTime() - Date.now()) / 1000);
+  if (seconds <= 0) return;
+
+  await Notifications.scheduleNotificationAsync({
+    content,
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+      seconds,
+      repeats: false,
+    },
+  });
+}
 
 /**
  * Request notification permissions from the user
@@ -73,10 +96,16 @@ export async function requestNotificationPermissions(): Promise<boolean> {
 export async function loadNotificationSettings(): Promise<NotificationSettings> {
   try {
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
+    const permission = await Notifications.getPermissionsAsync();
+    const hasPermission = permission.status === 'granted';
     if (stored) {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
+      const merged = { ...DEFAULT_SETTINGS, ...JSON.parse(stored), hasPermission };
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+      return merged;
     }
-    return DEFAULT_SETTINGS;
+    const defaults = { ...DEFAULT_SETTINGS, hasPermission };
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
+    return defaults;
   } catch (error) {
     console.error('Error loading notification settings:', error);
     return DEFAULT_SETTINGS;
@@ -123,13 +152,15 @@ export async function scheduleDayPlanNotifications(
   profile: UserProfile,
   settings: NotificationSettings
 ): Promise<void> {
-  if (!settings.enabled || !settings.hasPermission) {
-    return;
-  }
-
   try {
     // Cancel all existing notifications first
     await Notifications.cancelAllScheduledNotificationsAsync();
+
+    const permission = await Notifications.getPermissionsAsync();
+    const hasPermission = permission.status === 'granted';
+    if (!settings.enabled || !hasPermission) {
+      return;
+    }
 
     // Morning Motivation
     if (settings.morningMotivation) {
@@ -138,13 +169,10 @@ export async function scheduleDayPlanNotifications(
       wakeTime.setHours(wakeHour, wakeMin + 5, 0, 0);
 
       if (!isWithinQuietHours(wakeTime, settings.quietHoursStart, settings.quietHoursEnd)) {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: '🌅 Good Morning!',
-            body: "Ready to optimize your day? Let's make it great!",
-            sound: true,
-          },
-          trigger: { seconds: Math.floor((wakeTime.getTime() - Date.now()) / 1000) } as any,
+        await scheduleAtTime(wakeTime, {
+          title: '🌅 Good Morning!',
+          body: "Ready to optimize your day? Let's make it great!",
+          sound: true,
         });
       }
     }
@@ -157,13 +185,10 @@ export async function scheduleDayPlanNotifications(
           mealTime.setMinutes(mealTime.getMinutes() - settings.preMealMinutes);
 
           if (!isWithinQuietHours(mealTime, settings.quietHoursStart, settings.quietHoursEnd)) {
-            await Notifications.scheduleNotificationAsync({
-              content: {
-                title: `🍽️ ${entry.title} Coming Up`,
-                body: `Your ${entry.title.toLowerCase()} is in ${settings.preMealMinutes} minutes`,
-                sound: true,
-              },
-              trigger: { seconds: Math.floor((mealTime.getTime() - Date.now()) / 1000) } as any,
+            await scheduleAtTime(mealTime, {
+              title: `${entry.title} Coming Up`,
+              body: `Your ${entry.title.toLowerCase()} is in ${settings.preMealMinutes} minutes`,
+              sound: true,
             });
           }
         }
@@ -178,13 +203,10 @@ export async function scheduleDayPlanNotifications(
           workoutTime.setMinutes(workoutTime.getMinutes() - settings.preWorkoutMinutes);
 
           if (!isWithinQuietHours(workoutTime, settings.quietHoursStart, settings.quietHoursEnd)) {
-            await Notifications.scheduleNotificationAsync({
-              content: {
-                title: '💪 Workout Time Approaching',
-                body: `Get ready! Your workout starts in ${settings.preWorkoutMinutes} minutes`,
-                sound: true,
-              },
-              trigger: { seconds: Math.floor((workoutTime.getTime() - Date.now()) / 1000) } as any,
+            await scheduleAtTime(workoutTime, {
+              title: 'Workout Time Approaching',
+              body: `Get ready! Your workout starts in ${settings.preWorkoutMinutes} minutes`,
+              sound: true,
             });
           }
         }
@@ -199,13 +221,10 @@ export async function scheduleDayPlanNotifications(
           walkTime.setMinutes(walkTime.getMinutes() - 5);
 
           if (!isWithinQuietHours(walkTime, settings.quietHoursStart, settings.quietHoursEnd)) {
-            await Notifications.scheduleNotificationAsync({
-              content: {
-                title: '🚶 Time for a Walk',
-                body: entry.title,
-                sound: true,
-              },
-              trigger: { seconds: Math.floor((walkTime.getTime() - Date.now()) / 1000) } as any,
+            await scheduleAtTime(walkTime, {
+              title: 'Time for a Walk',
+              body: entry.title,
+              sound: true,
             });
           }
         }
@@ -223,13 +242,10 @@ export async function scheduleDayPlanNotifications(
         reminderTime.setHours(currentHour, 0, 0, 0);
 
         if (!isWithinQuietHours(reminderTime, settings.quietHoursStart, settings.quietHoursEnd)) {
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: '💧 Hydration Check',
-              body: 'Time for some water! Stay hydrated for optimal performance.',
-              sound: true,
-            },
-            trigger: { seconds: Math.floor((reminderTime.getTime() - Date.now()) / 1000) } as any,
+          await scheduleAtTime(reminderTime, {
+            title: '💧 Hydration Check',
+            body: 'Time for some water! Stay hydrated for optimal performance.',
+            sound: true,
           });
         }
         currentHour += 2;
@@ -242,13 +258,10 @@ export async function scheduleDayPlanNotifications(
       afternoonDipTime.setHours(14, 0, 0, 0);
 
       if (!isWithinQuietHours(afternoonDipTime, settings.quietHoursStart, settings.quietHoursEnd)) {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: '⚡ Energy Dip Alert',
-            body: 'Natural afternoon energy dip. Consider a short walk or light snack.',
-            sound: true,
-          },
-          trigger: { seconds: Math.floor((afternoonDipTime.getTime() - Date.now()) / 1000) } as any,
+        await scheduleAtTime(afternoonDipTime, {
+          title: '⚡ Energy Dip Alert',
+          body: 'Natural afternoon energy dip. Consider a short walk or light snack.',
+          sound: true,
         });
       }
     }
@@ -260,13 +273,10 @@ export async function scheduleDayPlanNotifications(
       windDownTime.setHours(sleepHour - 1, sleepMin, 0, 0);
 
       if (!isWithinQuietHours(windDownTime, settings.quietHoursStart, settings.quietHoursEnd)) {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: '🌙 Time to Wind Down',
-            body: 'Start your evening routine for optimal sleep quality.',
-            sound: true,
-          },
-          trigger: { seconds: Math.floor((windDownTime.getTime() - Date.now()) / 1000) } as any,
+        await scheduleAtTime(windDownTime, {
+          title: '🌙 Time to Wind Down',
+          body: 'Start your evening routine for optimal sleep quality.',
+          sound: true,
         });
       }
     }
@@ -284,5 +294,29 @@ export async function cancelAllNotifications(): Promise<void> {
     await Notifications.cancelAllScheduledNotificationsAsync();
   } catch (error) {
     console.error('Error canceling notifications:', error);
+  }
+}
+
+/**
+ * Read scheduled notification diagnostics for quick in-app debugging.
+ */
+export async function getScheduledNotificationsDebugInfo(): Promise<NotificationDebugInfo> {
+  try {
+    const permission = await Notifications.getPermissionsAsync();
+    const hasPermission = permission.status === 'granted';
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+
+    return {
+      count: scheduled.length,
+      hasPermission,
+      identifiers: scheduled.slice(0, 5).map((item) => item.identifier),
+    };
+  } catch (error) {
+    console.error('Error loading notification debug info:', error);
+    return {
+      count: 0,
+      hasPermission: false,
+      identifiers: [],
+    };
   }
 }

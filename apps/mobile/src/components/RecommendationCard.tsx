@@ -1,13 +1,14 @@
 /**
- * Enhanced Recommendation Card
- * Premium, interactive recommendations with add-to-schedule functionality
+ * AlignOS Recommendation Card
+ * Clean, minimal suggestions with add-to-schedule functionality
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import type { ScheduleItem } from '@physiology-engine/shared';
+import { useTheme, Card, AppIcon } from '@physiology-engine/ui';
 import { haptics } from '../utils/haptics';
+import WhyThisModal from './help/WhyThisModal';
 
 interface RecommendationCardProps {
   text: string;
@@ -16,7 +17,21 @@ interface RecommendationCardProps {
 }
 
 export default function RecommendationCard({ text, onAdd, index }: RecommendationCardProps) {
-  const [scaleAnim] = React.useState(new Animated.Value(1));
+  const { colors, typography, spacing, radius } = useTheme();
+  const [showWhyThis, setShowWhyThis] = React.useState(false);
+
+  const getIconName = (): 'meal' | 'coffee' | 'walk' | 'workout' | 'work' | 'meeting' | 'sleep' | 'focus' | 'break' | 'stretch' | 'winddown' | 'water' | 'plus' => {
+    const lowerText = text.toLowerCase();
+    if (lowerText.includes('walk') || lowerText.includes('movement')) return 'walk';
+    if (lowerText.includes('stretch') || lowerText.includes('mobility')) return 'stretch';
+    if (lowerText.includes('train') || lowerText.includes('workout')) return 'workout';
+    if (lowerText.includes('hydrat') || lowerText.includes('water')) return 'water';
+    if (lowerText.includes('focus') || lowerText.includes('deep work')) return 'focus';
+    if (lowerText.includes('break') || lowerText.includes('rest')) return 'break';
+    if (lowerText.includes('meal') || lowerText.includes('eat')) return 'meal';
+    if (lowerText.includes('sleep')) return 'sleep';
+    return 'plus';
+  };
 
   const getSuggestedActivity = (): Omit<ScheduleItem, 'id'> | null => {
     const lowerText = text.toLowerCase();
@@ -30,8 +45,11 @@ export default function RecommendationCard({ text, onAdd, index }: Recommendatio
         title: '20min Walk',
         startISO: now.toISOString(),
         endISO: oneHourLater.toISOString(),
+        isSystemAnchor: false,
+        isFixedAnchor: false,
         fixed: false,
         source: 'user',
+        status: 'planned',
         notes: 'Added from recommendation',
       };
     }
@@ -42,8 +60,11 @@ export default function RecommendationCard({ text, onAdd, index }: Recommendatio
         title: 'Stretching & Mobility',
         startISO: now.toISOString(),
         endISO: new Date(now.getTime() + 15 * 60 * 1000).toISOString(),
+        isSystemAnchor: false,
+        isFixedAnchor: false,
         fixed: false,
         source: 'user',
+        status: 'planned',
         notes: 'Added from recommendation',
       };
     }
@@ -54,8 +75,11 @@ export default function RecommendationCard({ text, onAdd, index }: Recommendatio
         title: 'Training Session',
         startISO: now.toISOString(),
         endISO: new Date(now.getTime() + 45 * 60 * 1000).toISOString(),
+        isSystemAnchor: false,
+        isFixedAnchor: false,
         fixed: false,
         source: 'user',
+        status: 'planned',
         notes: 'Added from recommendation',
       };
     }
@@ -66,8 +90,11 @@ export default function RecommendationCard({ text, onAdd, index }: Recommendatio
         title: 'Water Break',
         startISO: now.toISOString(),
         endISO: new Date(now.getTime() + 5 * 60 * 1000).toISOString(),
+        isSystemAnchor: false,
+        isFixedAnchor: false,
         fixed: false,
         source: 'user',
+        status: 'planned',
         notes: 'Added from recommendation',
       };
     }
@@ -78,8 +105,11 @@ export default function RecommendationCard({ text, onAdd, index }: Recommendatio
         title: 'Deep Work Session',
         startISO: now.toISOString(),
         endISO: new Date(now.getTime() + 90 * 60 * 1000).toISOString(),
+        isSystemAnchor: false,
+        isFixedAnchor: false,
         fixed: false,
         source: 'user',
+        status: 'planned',
         notes: 'Added from recommendation',
       };
     }
@@ -90,8 +120,11 @@ export default function RecommendationCard({ text, onAdd, index }: Recommendatio
         title: 'Rest & Recovery',
         startISO: now.toISOString(),
         endISO: new Date(now.getTime() + 30 * 60 * 1000).toISOString(),
+        isSystemAnchor: false,
+        isFixedAnchor: false,
         fixed: false,
         source: 'user',
+        status: 'planned',
         notes: 'Added from recommendation',
       };
     }
@@ -102,8 +135,11 @@ export default function RecommendationCard({ text, onAdd, index }: Recommendatio
       title: 'Flexible Time',
       startISO: now.toISOString(),
       endISO: new Date(now.getTime() + 30 * 60 * 1000).toISOString(),
+      isSystemAnchor: false,
+      isFixedAnchor: false,
       fixed: false,
       source: 'user',
+      status: 'planned',
       notes: text,
     };
   };
@@ -112,107 +148,71 @@ export default function RecommendationCard({ text, onAdd, index }: Recommendatio
     const suggestedActivity = getSuggestedActivity();
     if (suggestedActivity) {
       haptics.light();
-      
-      // Scale animation
-      Animated.sequence([
-        Animated.timing(scaleAnim, {
-          toValue: 0.95,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-      ]).start();
-
       onAdd(suggestedActivity);
       haptics.success();
     }
   };
 
-  const getGradientColors = (): [string, string] => {
-    const gradients: [string, string][] = [
-      ['#14967F', '#1CB896'],
-      ['#6366F1', '#8B5CF6'],
-      ['#F59E0B', '#F97316'],
-      ['#10B981', '#059669'],
-      ['#8B5CF6', '#EC4899'],
-    ];
-    return gradients[index % gradients.length];
-  };
-
   return (
-    <Animated.View style={[styles.container, { transform: [{ scale: scaleAnim }] }]}>
-      <TouchableOpacity onPress={handlePress} activeOpacity={0.8}>
-        <LinearGradient
-          colors={[getGradientColors()[0], getGradientColors()[1], 'transparent']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.gradient}
-        >
+    <>
+      <TouchableOpacity onPress={handlePress} activeOpacity={0.7}>
+        <Card>
           <View style={styles.content}>
-            <View style={styles.iconContainer}>
-              <Text style={styles.icon}>💡</Text>
+            <View style={[styles.iconContainer, { backgroundColor: colors.accentSoft }]}>
+              <AppIcon name={getIconName()} size={18} color={colors.accentPrimary} />
             </View>
-            <Text style={styles.text}>{text}</Text>
-            <View style={styles.addButton}>
-              <Text style={styles.addButtonText}>+</Text>
+            <View style={styles.textContainer}>
+              <Text style={[typography.bodyM, { color: colors.textPrimary, fontWeight: '500' }]}>
+                {text.split('.')[0]}
+              </Text>
+              {text.includes('.') && (
+                <TouchableOpacity onPress={() => setShowWhyThis(true)}>
+                  <Text style={[typography.bodyM, { color: colors.accentPrimary, fontSize: 12, marginTop: 2 }]}>
+                    Why this?
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <View style={[styles.addButton, { borderColor: colors.accentPrimary }]}>
+              <AppIcon name="plusCircle" size={20} color={colors.accentPrimary} />
             </View>
           </View>
-        </LinearGradient>
+        </Card>
       </TouchableOpacity>
-    </Animated.View>
+
+      <WhyThisModal
+        visible={showWhyThis}
+        onClose={() => setShowWhyThis(false)}
+        title="Suggested insertion"
+        explanation="This insertion is generated from current timeline context, likely energy transitions, and your active planning constraints."
+      />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    marginBottom: 12,
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#00ff88',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  gradient: {
-    padding: 2,
-    borderRadius: 16,
-  },
   content: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1a1a1a',
-    borderRadius: 14,
-    padding: 16,
   },
   iconContainer: {
-    marginRight: 12,
-  },
-  icon: {
-    fontSize: 24,
-  },
-  text: {
-    flex: 1,
-    fontSize: 14,
-    color: '#fff',
-    lineHeight: 20,
-  },
-  addButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#00ff88',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  textContainer: {
+    flex: 1,
+  },
+  addButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 12,
-  },
-  addButtonText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
+    borderWidth: 1,
   },
 });

@@ -214,7 +214,7 @@ function getComfortMealTemplate(foundation: DietFoundation): MealTemplate {
         'Try to keep lower-carb if possible',
         'Window closes after - no stacking',
       ],
-      emphasis: 'Comfort slot - avoid stacking treats, close window after',
+      emphasis: 'Comfort slot - window closes after, avoid stacking treats',
     },
     CARNIVORE: {
       label: 'Carnivore Comfort',

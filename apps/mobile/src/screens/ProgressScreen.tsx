@@ -1,17 +1,28 @@
 /**
- * Progress Dashboard Screen
- * Beautiful analytics and achievements display
+ * AlignOS System Health Screen
+ * Clean analytics without gamification
  */
 
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Dimensions } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { View, Text, StyleSheet, ScrollView, useWindowDimensions } from 'react-native';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { useAchievementStore } from '../store/achievementStore';
 import { format } from 'date-fns';
+import { 
+  useTheme, 
+  Card, 
+  SectionTitle, 
+  StatRow, 
+  Divider,
+  AppIcon,
+} from '@physiology-engine/ui';
 
-const { width } = Dimensions.get('window');
 
 export default function ProgressScreen() {
+  const { colors, typography, spacing, radius } = useTheme();
+  const { width } = useWindowDimensions();
+  const isCompactScore = width < 360;
+  
   const {
     currentStreak,
     longestStreak,
@@ -27,146 +38,246 @@ export default function ProgressScreen() {
     initialize();
   }, []);
 
-  const unlockedCount = achievements.filter(a => a.unlockedAt).length;
   const recentDays = completionHistory.slice(-7);
   const avgCompletion = recentDays.length > 0
     ? recentDays.reduce((sum, d) => sum + d.completionRate, 0) / recentDays.length
     : 0;
 
+  // Calculate stability score (0-100) based on consistency
+  const stabilityScore = Math.round(
+    (currentStreak / Math.max(longestStreak, 1)) * 40 +
+    (avgCompletion / 100) * 40 +
+    (perfectDays / Math.max(totalDaysActive, 1)) * 20
+  );
+
+  // Calculate timing consistency (variance in completion times)
+  const timingVariance = recentDays.length > 1
+    ? Math.round(recentDays.reduce((sum, d, i, arr) => {
+        if (i === 0) return 0;
+        return sum + Math.abs(d.completionRate - arr[i - 1].completionRate);
+      }, 0) / (recentDays.length - 1))
+    : 0;
+  
+  const consistencyRating = timingVariance < 10 ? 'Excellent' :
+                           timingVariance < 20 ? 'Good' :
+                           timingVariance < 30 ? 'Fair' : 'Variable';
+
+  // Calculate momentum (7-day trend)
+  const momentum = recentDays.length >= 2
+    ? recentDays[recentDays.length - 1].completionRate - recentDays[0].completionRate
+    : 0;
+  
+  const momentumLabel = momentum > 10 ? 'Rising' :
+                       momentum < -10 ? 'Declining' : 'Stable';
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView style={styles.scrollView}>
         {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>Your Progress</Text>
-          <Text style={styles.subtitle}>Keep building momentum</Text>
+        <View style={[styles.header, { paddingTop: 60 }]}>
+          <Text style={[typography.titleXL, { color: colors.textPrimary }]}>System Health</Text>
+          <Text style={[typography.bodyM, { color: colors.textSecondary }]}>
+            Execution metrics & consistency tracking
+          </Text>
         </View>
 
-        {/* Streak Card */}
-        <LinearGradient
-          colors={['#FF6B6B', '#FF8E53', '#FFA06B']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.streakCard}
-        >
-          <View style={styles.streakContent}>
-            <Text style={styles.streakEmoji}>🔥</Text>
-            <View style={styles.streakInfo}>
-              <Text style={styles.streakNumber}>{currentStreak}</Text>
-              <Text style={styles.streakLabel}>Day Streak</Text>
+        {/* Stability Score Card */}
+        <View style={{ paddingHorizontal: spacing.lg }}>
+          <Card>
+            <View style={styles.scoreHeader}>
+              <View style={styles.scoreContent}>
+                <Text style={[typography.bodyM, { color: colors.textMuted, fontSize: 12, marginBottom: 4, letterSpacing: 0.5 }]}>
+                  STABILITY SCORE
+                </Text>
+                <Text
+                  style={[
+                    typography.titleXL,
+                    styles.scoreValue,
+                    {
+                      color: colors.accentPrimary,
+                      fontSize: isCompactScore ? 42 : 48,
+                      lineHeight: isCompactScore ? 48 : 56,
+                      fontWeight: '700',
+                    },
+                  ]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.9}
+                >
+                  {stabilityScore}
+                </Text>
+              </View>
+              <View style={[styles.scoreBadge, { backgroundColor: colors.accentSoft, borderColor: colors.accentPrimary }]}>
+                <Feather name="trending-up" size={24} color={colors.accentPrimary} />
+              </View>
             </View>
-          </View>
-          <Text style={styles.streakSubtext}>Best: {longestStreak} days</Text>
-        </LinearGradient>
-
-        {/* Stats Grid */}
-        <View style={styles.statsGrid}>
-          <LinearGradient
-            colors={['#667EEA', '#764BA2']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.statCard}
-          >
-            <Text style={styles.statIcon}>📊</Text>
-            <Text style={styles.statNumber}>{totalActivitiesCompleted}</Text>
-            <Text style={styles.statLabel}>Activities</Text>
-          </LinearGradient>
-
-          <LinearGradient
-            colors={['#11998E', '#38EF7D']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.statCard}
-          >
-            <Text style={styles.statIcon}>✨</Text>
-            <Text style={styles.statNumber}>{perfectDays}</Text>
-            <Text style={styles.statLabel}>Perfect Days</Text>
-          </LinearGradient>
-
-          <LinearGradient
-            colors={['#F857A6', '#FF5858']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.statCard}
-          >
-            <Text style={styles.statIcon}>📅</Text>
-            <Text style={styles.statNumber}>{totalDaysActive}</Text>
-            <Text style={styles.statLabel}>Total Days</Text>
-          </LinearGradient>
-
-          <LinearGradient
-            colors={['#FFD89B', '#19547B']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.statCard}
-          >
-            <Text style={styles.statIcon}>🎯</Text>
-            <Text style={styles.statNumber}>{Math.round(avgCompletion)}%</Text>
-            <Text style={styles.statLabel}>Avg Rate</Text>
-          </LinearGradient>
+            
+            <Divider spacing="md" />
+            
+            <View style={styles.scoreMetrics}>
+              <View style={{ flex: 1 }}>
+                <Text style={[typography.bodyM, { color: colors.textMuted, fontSize: 11, marginBottom: 4, letterSpacing: 0.4 }]}>
+                  VARIANCE
+                </Text>
+                <Text style={[typography.bodyM, { color: colors.textPrimary, fontWeight: '600' }]}>
+                  {consistencyRating}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[typography.bodyM, { color: colors.textMuted, fontSize: 11, marginBottom: 4, letterSpacing: 0.4 }]}>
+                  TREND
+                </Text>
+                <Text style={[typography.bodyM, { color: colors.textPrimary, fontWeight: '600' }]}>
+                  {momentumLabel}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[typography.bodyM, { color: colors.textMuted, fontSize: 11, marginBottom: 4, letterSpacing: 0.4 }]}>
+                  STREAK
+                </Text>
+                <Text style={[typography.bodyM, { color: colors.textPrimary, fontWeight: '600' }]}>
+                  {currentStreak}d
+                </Text>
+              </View>
+            </View>
+          </Card>
         </View>
 
-        {/* Weekly Progress */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Last 7 Days</Text>
-          <View style={styles.weeklyChart}>
-            {recentDays.map((day, index) => {
-              const height = Math.max(day.completionRate, 10);
-              const date = new Date(day.date);
-              return (
-                <View key={day.date} style={styles.chartBar}>
-                  <View style={styles.barContainer}>
-                    <LinearGradient
-                      colors={height === 100 ? ['#00ff88', '#14967F'] : ['#667EEA', '#764BA2']}
-                      style={[styles.bar, { height: `${height}%` }]}
-                    />
+        {/* Core Metrics */}
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
+          <View style={styles.sectionHeader}>
+            <AppIcon name="chart" size={18} color={colors.textPrimary} />
+            <SectionTitle title="Core Metrics" />
+          </View>
+          
+          <Card style={{ marginTop: spacing.md }}>
+            <StatRow 
+              label="Total Days Active" 
+              value={totalDaysActive.toString()} 
+            />
+            <Divider spacing="sm" />
+            <StatRow 
+              label="Activities Completed" 
+              value={totalActivitiesCompleted.toString()} 
+            />
+            <Divider spacing="sm" />
+            <StatRow 
+              label="Perfect Days" 
+              value={perfectDays.toString()} 
+            />
+            <Divider spacing="sm" />
+            <StatRow 
+              label="Current Streak" 
+              value={`${currentStreak} days`} 
+            />
+            <Divider spacing="sm" />
+            <StatRow 
+              label="Longest Streak" 
+              value={`${longestStreak} days`} 
+            />
+            <Divider spacing="sm" />
+            <StatRow 
+              label="7-Day Avg Completion" 
+              value={`${Math.round(avgCompletion)}%`} 
+            />
+          </Card>
+        </View>
+
+        {/* 7-Day Trend */}
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
+          <View style={styles.sectionHeader}>
+            <AppIcon name="history" size={18} color={colors.textPrimary} />
+            <SectionTitle title="Last 7 Days" />
+          </View>
+          
+          <Card style={{ marginTop: spacing.md }}>
+            <View style={styles.chartContainer}>
+              {recentDays.map((day, index) => {
+                const height = Math.max(day.completionRate / 100, 0.1);
+                const date = new Date(day.date);
+                const isToday = index === recentDays.length - 1;
+                
+                return (
+                  <View key={day.date} style={styles.barWrapper}>
+                    <View style={styles.barColumn}>
+                      <View style={styles.barTrack}>
+                        <View 
+                          style={[
+                            styles.bar,
+                            { 
+                              height: `${height * 100}%`,
+                              backgroundColor: day.completionRate === 100 
+                                ? colors.success 
+                                : isToday
+                                ? colors.accentPrimary
+                                : colors.chartPrimary,
+                            }
+                          ]} 
+                        />
+                      </View>
+                      <Text style={[typography.bodyM, { color: colors.textMuted, fontSize: 10, marginTop: 8 }]}>
+                        {format(date, 'EEE')[0]}
+                      </Text>
+                    </View>
                   </View>
-                  <Text style={styles.chartLabel}>{format(date, 'EEE')[0]}</Text>
-                </View>
+                );
+              })}
+            </View>
+          </Card>
+        </View>
+
+        {/* System Benchmarks */}
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.xl }}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="trophy" size={18} color={colors.textPrimary} />
+            <SectionTitle title="System Benchmarks" />
+          </View>
+          
+          <View style={{ marginTop: spacing.md }}>
+            {achievements.map((achievement) => {
+              const isUnlocked = !!achievement.unlockedAt;
+              return (
+                <Card 
+                  key={achievement.id} 
+                  style={{ 
+                    marginBottom: spacing.sm,
+                    opacity: isUnlocked ? 1 : 0.4,
+                  }}
+                >
+                  <View style={styles.achievementRow}>
+                    <View style={[
+                      styles.achievementIcon,
+                      { 
+                        backgroundColor: isUnlocked ? colors.accentSoft : colors.surface,
+                        borderColor: isUnlocked ? colors.accentPrimary : colors.border,
+                      }
+                    ]}>
+                      <AppIcon 
+                        name="check" 
+                        size={20} 
+                        color={isUnlocked ? colors.accentPrimary : colors.textMuted} 
+                      />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: spacing.md }}>
+                      <Text style={[typography.bodyM, { color: colors.textPrimary, fontWeight: '600', marginBottom: 2 }]}>
+                        {achievement.title}
+                      </Text>
+                      <Text style={[typography.bodyM, { color: colors.textSecondary, fontSize: 12 }]}>
+                        {achievement.description}
+                      </Text>
+                      {isUnlocked && achievement.unlockedAt && (
+                        <Text style={[typography.bodyM, { color: colors.textMuted, fontSize: 11, marginTop: 4, letterSpacing: 0.3 }]}>
+                          Achieved {format(new Date(achievement.unlockedAt), 'MMM d, yyyy')}
+                        </Text>
+                      )}
+                    </View>
+                    {isUnlocked && (
+                      <AppIcon name="check" size={18} color={colors.success} />
+                    )}
+                  </View>
+                </Card>
               );
             })}
-          </View>
-        </View>
-
-        {/* Achievements */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            Achievements ({unlockedCount}/{achievements.length})
-          </Text>
-          <View style={styles.achievementsGrid}>
-            {achievements.map((achievement) => (
-              <View
-                key={achievement.id}
-                style={[
-                  styles.achievementCard,
-                  achievement.unlockedAt && styles.achievementUnlocked,
-                ]}
-              >
-                <Text style={[
-                  styles.achievementIcon,
-                  !achievement.unlockedAt && styles.achievementLocked,
-                ]}>
-                  {achievement.icon}
-                </Text>
-                <Text style={[
-                  styles.achievementTitle,
-                  !achievement.unlockedAt && styles.textLocked,
-                ]}>
-                  {achievement.title}
-                </Text>
-                <Text style={[
-                  styles.achievementDesc,
-                  !achievement.unlockedAt && styles.textLocked,
-                ]}>
-                  {achievement.description}
-                </Text>
-                {achievement.unlockedAt && (
-                  <Text style={styles.achievementDate}>
-                    {format(new Date(achievement.unlockedAt), 'MMM d')}
-                  </Text>
-                )}
-              </View>
-            ))}
           </View>
         </View>
       </ScrollView>
@@ -177,169 +288,80 @@ export default function ProgressScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
   },
   scrollView: {
     flex: 1,
   },
   header: {
-    padding: 24,
-    paddingTop: 60,
+    paddingHorizontal: 24,
+    paddingBottom: 16,
   },
-  title: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#00ff88',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#aaa',
-  },
-  streakCard: {
-    margin: 24,
-    marginTop: 12,
-    padding: 24,
-    borderRadius: 24,
-    shadowColor: '#FF6B6B',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  streakContent: {
+  scoreHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
   },
-  streakEmoji: {
-    fontSize: 48,
-    marginRight: 16,
-  },
-  streakInfo: {
+  scoreContent: {
     flex: 1,
+    minWidth: 0,
+    marginRight: 12,
   },
-  streakNumber: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#fff',
+  scoreValue: {
+    lineHeight: 56,
+    includeFontPadding: false,
   },
-  streakLabel: {
-    fontSize: 18,
-    color: '#fff',
-    opacity: 0.9,
+  scoreBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  streakSubtext: {
-    fontSize: 14,
-    color: '#fff',
-    opacity: 0.8,
-  },
-  statsGrid: {
+  scoreMetrics: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 16,
     gap: 16,
   },
-  statCard: {
-    width: (width - 64) / 2,
-    padding: 20,
-    borderRadius: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  statIcon: {
-    fontSize: 32,
-    marginBottom: 8,
-  },
-  statNumber: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#fff',
-    opacity: 0.9,
-  },
-  section: {
-    padding: 24,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 16,
-  },
-  weeklyChart: {
+  sectionHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    height: 120,
-    paddingTop: 20,
-  },
-  chartBar: {
-    flex: 1,
     alignItems: 'center',
-    gap: 8,
   },
-  barContainer: {
-    width: '80%',
+  chartContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    height: 120,
+    gap: 4,
+  },
+  barWrapper: {
+    flex: 1,
+  },
+  barColumn: {
+    alignItems: 'center',
+  },
+  barTrack: {
+    width: '100%',
     height: 100,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 6,
     overflow: 'hidden',
     justifyContent: 'flex-end',
   },
   bar: {
     width: '100%',
-    borderRadius: 8,
+    borderTopLeftRadius: 6,
+    borderTopRightRadius: 6,
   },
-  chartLabel: {
-    fontSize: 12,
-    color: '#888',
-  },
-  achievementsGrid: {
-    gap: 12,
-  },
-  achievementCard: {
-    backgroundColor: '#1a1a1a',
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: '#2a2a2a',
-  },
-  achievementUnlocked: {
-    borderColor: '#00ff88',
-    backgroundColor: '#0a2a1a',
+  achievementRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   achievementIcon: {
-    fontSize: 32,
-    marginBottom: 8,
-  },
-  achievementLocked: {
-    opacity: 0.3,
-  },
-  achievementTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  achievementDesc: {
-    fontSize: 13,
-    color: '#888',
-  },
-  textLocked: {
-    opacity: 0.5,
-  },
-  achievementDate: {
-    fontSize: 11,
-    color: '#00ff88',
-    marginTop: 4,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

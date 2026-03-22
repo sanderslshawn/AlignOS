@@ -1,0 +1,316 @@
+import React, { useMemo, useState } from 'react';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { usePlanStore } from '../store/planStore';
+import { evaluateQuickStatusDecision } from '../engine/quickStatusEngine';
+import { QUICK_STATUS_LABELS, QUICK_STATUS_SIGNALS, normalizeQuickStatusSignals, type QuickStatusSignal } from '../types/quickStatus';
+import { useTheme, Card, SectionTitle, AppIcon } from '@physiology-engine/ui';
+import { ask as askAdvisor } from '../advisor';
+import { extractTimelineInserts, mapAdvisorInsertToScheduleItem, hasTimelineSuggestion } from '../advisor/utils/timelineInsert';
+import TooltipModal from '../components/help/TooltipModal';
+import WhyThisModal from '../components/help/WhyThisModal';
+import { useFeatureDiscovery } from '../hooks/useFeatureDiscovery';
+
+const SIGNAL_EXPLANATIONS: Record<QuickStatusSignal, string> = {
+  'hungry-now': 'Adds nutrition support and protects energy stability.',
+  'craving-comfort': 'Adds containment steps to avoid momentum collapse.',
+  'low-energy': 'Triggers short movement or hydration resets.',
+  'high-stress': 'Biases day toward reduced intensity and recovery pacing.',
+  dehydrated: 'Adds hydration now and guards afternoon dip risk.',
+  'poor-sleep': 'Delays stimulant load and reduces aggressive scheduling.',
+  'mental-fog': 'Prioritizes clarity blocks and recovery micro-actions.',
+};
+
+export default function SignalsScreen() {
+  const { colors, typography, spacing, radius } = useTheme();
+  const {
+    dayState,
+    setQuickStatusSignals,
+    addTodayEntry,
+    updateTodayEntry,
+    refreshFromNow,
+    fullDayPlan,
+  } = usePlanStore();
+
+  const [lastImpact, setLastImpact] = useState<string | null>(null);
+  const [showTooltip, setShowTooltip] = useState(false);
+  const [showWhyThis, setShowWhyThis] = useState(false);
+  const discovery = useFeatureDiscovery('signals', 3);
+
+  const signals = useMemo(
+    () => normalizeQuickStatusSignals((dayState as any)?.quickStatusSignals),
+    [dayState]
+  );
+
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const decision = evaluateQuickStatusDecision({
+    signals,
+    nowMinutes,
+    sleepScore: dayState?.sleepQuality || 7,
+    stressLevel: dayState?.stressLevel || 5,
+  });
+
+  const toggleSignal = async (signal: QuickStatusSignal) => {
+    const next = signals.includes(signal) ? signals.filter((s) => s !== signal) : [...signals, signal];
+    await setQuickStatusSignals(next);
+    setLastImpact(`Signals updated: ${next.map((s) => QUICK_STATUS_LABELS[s]).join(', ') || 'none'}`);
+    // If enabling a signal, fetch a short advisor recommendation for it
+    if (!signals.includes(signal)) {
+      void fetchSignalRecommendation(signal);
+    }
+  };
+
+  // Advisor modal state for signal-triggered recommendations
+  const [advisorVisible, setAdvisorVisible] = useState(false);
+  const [advisorText, setAdvisorText] = useState<string | null>(null);
+  const [advisorResponse, setAdvisorResponse] = useState<any | null>(null);
+
+  async function fetchSignalRecommendation(signal: QuickStatusSignal) {
+    // Map signal -> short prompt
+    const promptMap: Record<QuickStatusSignal, string> = {
+      'hungry-now': "I'm hungry now — what should I do to stabilize my energy?",
+      'craving-comfort': "I'm craving comfort food — how should I handle it without derailing my day?",
+      'low-energy': "I'm feeling low energy — suggest a short intervention to reset.",
+      'high-stress': "I'm feeling stressed — what's a short recovery step?",
+      dehydrated: "I'm dehydrated — what immediate steps and timeline inserts do you recommend?",
+      'poor-sleep': "I slept poorly — how should I shift today's schedule?",
+      'mental-fog': "I'm experiencing mental fog — suggest a clarity-first recommendation.",
+    };
+
+    const question = promptMap[signal] || 'What should I do right now?';
+    try {
+      setAdvisorVisible(true);
+      setAdvisorText('Thinking...');
+      const resp = await askAdvisor(question, { forcePreset: true });
+      setAdvisorResponse(resp);
+      setAdvisorText(resp.directAnswer || 'No recommendation');
+    } catch (err) {
+      setAdvisorText('Failed to get recommendation');
+      setAdvisorResponse(null);
+      console.warn('[Signals] advisor failed', err);
+    }
+  }
+
+  const applyAction = async (actionId: string) => {
+    const startMin = now.getHours() * 60 + now.getMinutes();
+
+    if (actionId === 'INSERT_WALK_8' || actionId === 'INSERT_WALK_10') {
+      const duration = actionId === 'INSERT_WALK_10' ? 10 : 8;
+      await addTodayEntry({
+        type: 'walk',
+        title: `${duration}min Reset Walk`,
+        startISO: now.toISOString(),
+        endISO: new Date(now.getTime() + duration * 60000).toISOString(),
+        startMin,
+        endMin: startMin + duration,
+        durationMin: duration,
+        fixed: false,
+        locked: false,
+        deletable: true,
+        source: 'user',
+        isSystemAnchor: false,
+        isFixedAnchor: false,
+        status: 'planned',
+      });
+      setLastImpact(`Inserted ${duration} minute walk`);
+      return;
+    }
+
+    if (actionId === 'INSERT_SNACK_15') {
+      await addTodayEntry({
+        type: 'snack',
+        title: 'Protein Snack',
+        startISO: now.toISOString(),
+        endISO: new Date(now.getTime() + 15 * 60000).toISOString(),
+        startMin,
+        endMin: startMin + 15,
+        durationMin: 15,
+        fixed: false,
+        locked: false,
+        deletable: true,
+        source: 'user',
+        isSystemAnchor: false,
+        isFixedAnchor: false,
+        status: 'planned',
+      });
+      setLastImpact('Inserted protein snack');
+      return;
+    }
+
+    if (actionId === 'SHIFT_LUNCH_EARLIER_15') {
+      const lunch = fullDayPlan?.items.find((item) => item.type === 'meal');
+      if (lunch) {
+        await updateTodayEntry(lunch.id, {
+          startMin: (lunch.startMin || startMin) - 15,
+          endMin: (lunch.endMin || startMin + 30) - 15,
+        });
+        setLastImpact('Shifted lunch earlier by 15 minutes');
+      }
+      return;
+    }
+
+    if (actionId === 'RECOMPUTE_FROM_NOW') {
+      await refreshFromNow();
+      setLastImpact('Refreshed schedule from now');
+    }
+  };
+
+  const addAdvisorInsertsToTimeline = async () => {
+    if (!advisorResponse) return;
+    const inserts = extractTimelineInserts(advisorResponse);
+    if (!inserts || inserts.length === 0) return;
+
+    for (const insert of inserts) {
+      await addTodayEntry(mapAdvisorInsertToScheduleItem(insert));
+    }
+    setAdvisorVisible(false);
+    setLastImpact('Added recommended items to timeline');
+  };
+
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={{ paddingBottom: spacing['2xl'] }}>
+      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
+        <SectionTitle title="Signals" subtitle="Adaptive inputs that mutate your day in real time" />
+      </View>
+
+      {discovery.shouldShow(1) ? (
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm }}>
+          <Card>
+            <Text style={[typography.caption, { color: colors.textSecondary }]}>New: Signals adapt your timeline instantly when your state changes.</Text>
+            <TouchableOpacity onPress={() => void discovery.advanceLevel()} style={{ marginTop: spacing.xs }}>
+              <Text style={[typography.caption, { color: colors.accentPrimary }]}>Got it</Text>
+            </TouchableOpacity>
+          </Card>
+        </View>
+      ) : null}
+
+      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+        <Card>
+          <Text style={[typography.bodyM, { color: colors.textSecondary, marginBottom: spacing.sm }]}>Quick Status Signals</Text>
+          <TouchableOpacity onPress={() => setShowTooltip(true)}>
+            <Text style={[typography.caption, { color: colors.accentPrimary, marginBottom: spacing.sm }]}>What is this?</Text>
+          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+            {QUICK_STATUS_SIGNALS.map((signal) => {
+              const active = signals.includes(signal);
+              return (
+                <TouchableOpacity
+                  key={signal}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: active ? colors.accentPrimary : colors.borderSubtle,
+                    backgroundColor: active ? colors.accentSoft : colors.surface,
+                    borderRadius: radius.md,
+                    paddingHorizontal: spacing.sm,
+                    paddingVertical: spacing.sm,
+                    marginRight: spacing.xs,
+                    marginBottom: spacing.xs,
+                  }}
+                  onPress={() => void toggleSignal(signal)}
+                >
+                  <Text style={[typography.caption, { color: active ? colors.accentPrimary : colors.textSecondary }]}>{QUICK_STATUS_LABELS[signal]}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </Card>
+      </View>
+
+      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+        <Card>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm }}>
+            <AppIcon name="sparkles" size={16} color={colors.textPrimary} />
+            <Text style={[typography.bodyM, { color: colors.textPrimary, fontWeight: '700', marginLeft: spacing.xs }]}>Signal Effects</Text>
+          </View>
+          {signals.length === 0 ? (
+            <Text style={[typography.caption, { color: colors.textMuted }]}>No active signals.</Text>
+          ) : (
+            signals.map((signal) => (
+              <Text key={signal} style={[typography.caption, { color: colors.textSecondary, marginBottom: 6 }]}>• {QUICK_STATUS_LABELS[signal]} — {SIGNAL_EXPLANATIONS[signal]}</Text>
+            ))
+          )}
+        </Card>
+      </View>
+
+      {decision && (
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+          <Card>
+            <Text style={[typography.bodyM, { color: colors.textPrimary, fontWeight: '700' }]}>{decision.title}</Text>
+            <Text style={[typography.caption, { color: colors.textMuted, marginTop: spacing.xs }]}>{decision.reasoning}</Text>
+            <TouchableOpacity onPress={() => setShowWhyThis(true)} style={{ marginTop: spacing.xs }}>
+              <Text style={[typography.caption, { color: colors.accentPrimary }]}>Why this?</Text>
+            </TouchableOpacity>
+            <View style={{ marginTop: spacing.sm }}>
+              {decision.actions.map((action) => (
+                <TouchableOpacity
+                  key={action.id}
+                  style={{ borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs }}
+                  onPress={() => void applyAction(action.id)}
+                >
+                  <Text style={[typography.caption, { color: colors.textSecondary }]}>{action.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </Card>
+        </View>
+      )}
+
+      {lastImpact && (
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+          <Card>
+            <Text style={[typography.caption, { color: colors.textSecondary }]}>Recent impact</Text>
+            <Text style={[typography.bodyM, { color: colors.textPrimary, marginTop: 4 }]}>{lastImpact}</Text>
+          </Card>
+        </View>
+      )}
+
+      {/* Advisor modal for signal-driven recommendations */}
+      {advisorVisible ? (
+        <Card>
+          <View style={{ padding: spacing.md }}>
+            <Text style={[typography.bodyM, { color: colors.textPrimary, fontWeight: '700' }]}>Recommendation</Text>
+            <Text style={[typography.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>{advisorText}</Text>
+
+            {advisorResponse && hasTimelineSuggestion(advisorResponse) ? (
+              <View style={{ flexDirection: 'row', marginTop: spacing.md }}>
+                <TouchableOpacity
+                  onPress={() => void addAdvisorInsertsToTimeline()}
+                  style={{ borderWidth: 1, borderColor: colors.accentPrimary, backgroundColor: colors.accentSoft, borderRadius: radius.md, padding: spacing.sm, marginRight: spacing.xs }}
+                >
+                  <Text style={[typography.caption, { color: colors.accentPrimary, fontWeight: '700' }]}>Add to Timeline</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setAdvisorVisible(false)}
+                  style={{ borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.md, padding: spacing.sm }}
+                >
+                  <Text style={[typography.caption, { color: colors.textMuted }]}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ marginTop: spacing.md }}>
+                <TouchableOpacity onPress={() => setAdvisorVisible(false)} style={{ borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.md, padding: spacing.sm }}>
+                  <Text style={[typography.caption, { color: colors.textMuted }]}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </Card>
+      ) : null}
+
+      <TooltipModal
+        visible={showTooltip}
+        onClose={() => setShowTooltip(false)}
+        title="Signals"
+        description="Signals are fast, user-driven state inputs. They bias the system toward supportive actions like hydration, movement, recovery, or schedule shifts."
+      />
+
+      <WhyThisModal
+        visible={showWhyThis}
+        onClose={() => setShowWhyThis(false)}
+        title="Signal-based recommendation"
+        explanation="This recommendation appears because your active signals and current time predict a better outcome if the timeline adapts now."
+      />
+    </ScrollView>
+  );
+}

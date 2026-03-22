@@ -2,11 +2,14 @@
  * PHYSIOLOGY-BASED AI ADVISOR
  * Provides intelligent, science-backed advice for meal timing, activity scheduling, and optimization
  * Enhanced with biometric data integration for recovery-aware recommendations
+ * 
+ * Now powered by AlignOS AI Advisor - knowledge-based advisory system
  */
 
 import { addMinutes, format, isBefore, isAfter, differenceInMinutes } from 'date-fns';
 import type { FitnessGoal, UserProfile, ScheduleItem, DayPlan } from '@physiology-engine/shared';
 import type { RecoveryScore } from '../store/biometricStore';
+import { getAdvisorResponse, getQuickQuestions, type BiometricContext } from './aiAdvisor';
 
 export interface PlanUpdate {
   action: 'add' | 'modify' | 'remove';
@@ -35,58 +38,43 @@ interface QueryContext {
 
 /**
  * Main AI advisor function - analyzes natural language queries
+ * Now powered by knowledge-based AI Advisor module
  */
-export function analyzeQuery(context: QueryContext): AIAdvice {
-  const { query, profile, currentPlan, currentTime } = context;
-  const lowerQuery = query.toLowerCase();
-
-  // Food keywords for meal detection
-  const foodKeywords = [
-    'eat', 'meal', 'food', 'breakfast', 'lunch', 'dinner', 'snack',
-    'chicken', 'beef', 'steak', 'fish', 'pork', 'turkey',
-    'burger', 'pizza', 'pasta', 'rice', 'bread', 'sandwich',
-    'salad', 'vegetables', 'fruit', 'bbq', 'fried',
-    'dessert', 'sweet', 'cake', 'cookie', 'ice cream',
-    'protein', 'carbs', 'carbohydrate'
-  ];
-
-  // Meal timing queries - check for any food keyword
-  if (foodKeywords.some(keyword => lowerQuery.includes(keyword))) {
-    return analyzeMealQuery(context);
-  }
-
-  // Workout timing queries
-  if (lowerQuery.includes('workout') || lowerQuery.includes('train') || lowerQuery.includes('exercise') || lowerQuery.includes('gym')) {
-    return analyzeWorkoutQuery(context);
-  }
-
-  // Sleep queries
-  if (lowerQuery.includes('sleep') || lowerQuery.includes('rest') || lowerQuery.includes('bed')) {
-    return analyzeSleepQuery(context);
-  }
-
-  // Walk queries
-  if (lowerQuery.includes('walk') || lowerQuery.includes('move') || lowerQuery.includes('steps')) {
-    return analyzeWalkQuery(context);
-  }
-
-  // Energy queries
-  if (lowerQuery.includes('energy') || lowerQuery.includes('tired') || lowerQuery.includes('alert') || lowerQuery.includes('fatigue')) {
-    return analyzeEnergyQuery(context);
-  }
-
-  // Hydration queries
-  if (lowerQuery.includes('water') || lowerQuery.includes('hydrat') || lowerQuery.includes('drink')) {
-    return analyzeHydrationQuery(context);
-  }
-
-  // Generic optimization query
-  return analyzeGenericQuery(context);
+export async function analyzeQuery(context: QueryContext): Promise<AIAdvice> {
+  const { query, profile, currentPlan, currentTime, recoveryScore } = context;
+  
+  // Map recovery score to biometric context
+  const biometrics: BiometricContext | undefined = recoveryScore ? {
+    sleepScore: recoveryScore.sleepScore,
+    stressLevel: (recoveryScore.recommendation === 'rest' ? 'high' : 
+                 recoveryScore.recommendation === 'light' ? 'medium' : 'low') as 'high' | 'medium' | 'low',
+    hrv: recoveryScore.hrv,
+    restingHeartRate: recoveryScore.restingHeartRate,
+  } : undefined;
+  
+  // Get response from new AI Advisor
+  const advisorResponse = await getAdvisorResponse(
+    query,
+    profile,
+    currentPlan || null,
+    currentTime,
+    biometrics
+  );
+  
+  // Map AdvisorResponse to legacy AIAdvice interface
+  const answer = `${advisorResponse.explanation}\n\n**${advisorResponse.action}**${
+    advisorResponse.integration ? `\n\n*${advisorResponse.integration}*` : ''
+  }`;
+  
+  return {
+    answer,
+    reasoning: advisorResponse.reasoning,
+    confidence: advisorResponse.confidence,
+    references: advisorResponse.domains.map(d => `Knowledge: ${d}`),
+  };
 }
 
-/**
- * Analyze meal timing queries (e.g., "When should I eat BBQ chicken?")
- */
+// Legacy function kept for backwards compatibility
 function analyzeMealQuery(context: QueryContext): AIAdvice {
   const { query, profile, currentPlan, currentTime } = context;
   const lowerQuery = query.toLowerCase();
@@ -283,7 +271,10 @@ function analyzeMealQuery(context: QueryContext): AIAdvice {
     startISO: suggestedTime.toISOString(),
     endISO: addMinutes(suggestedTime, 30).toISOString(),
     fixed: false,
+    isSystemAnchor: false,
+    isFixedAnchor: false,
     source: 'user',
+    status: 'planned',
     notes: `From AI: ${query.substring(0, 100)}`,
   };
 
@@ -339,7 +330,7 @@ function analyzeWorkoutQuery(context: QueryContext): AIAdvice {
       reasoning.push('Your body is partially recovered. Stick to 60-70% intensity max.');
       reasoning.push('');
     } else {
-      reasoning.push(`✅ Your recovery score is ${recoveryScore.score}/100 - GOOD`);
+      reasoning.push(`Recovery score: ${recoveryScore.score}/100 - Good baseline`);
       reasoning.push(`HRV: ${recoveryScore.hrv}ms | Resting HR: ${recoveryScore.restingHeartRate} BPM`);
       reasoning.push('Your body is well-recovered and ready for training');
       reasoning.push('');
@@ -436,7 +427,10 @@ function analyzeWorkoutQuery(context: QueryContext): AIAdvice {
     startISO: suggestedTime.toISOString(),
     endISO: addMinutes(suggestedTime, 60).toISOString(),
     fixed: false,
+    isSystemAnchor: false,
+    isFixedAnchor: false,
     source: 'user',
+    status: 'planned',
     notes: `From AI: ${context.query.substring(0, 100)}`,
   };
 
@@ -490,7 +484,10 @@ function analyzeSleepQuery(context: QueryContext): AIAdvice {
     startISO: addMinutes(idealBedtime, -30).toISOString(),
     endISO: idealBedtime.toISOString(),
     fixed: false,
+    isSystemAnchor: false,
+    isFixedAnchor: false,
     source: 'user',
+    status: 'planned',
     notes: 'Prepare for sleep - dim lights, no screens',
   };
 
@@ -571,7 +568,10 @@ function analyzeWalkQuery(context: QueryContext): AIAdvice {
     startISO: suggestedTime.toISOString(),
     endISO: addMinutes(suggestedTime, 15).toISOString(),
     fixed: false,
+    isSystemAnchor: false,
+    isFixedAnchor: false,
     source: 'user',
+    status: 'planned',
     notes: `From AI: ${context.query.substring(0, 100)}`,
   };
 
@@ -717,26 +717,16 @@ function analyzeGenericQuery(context: QueryContext): AIAdvice {
 
 /**
  * Generate context-aware quick suggestion
+ * Now powered by Quick Questions system
  */
 export function getQuickSuggestion(profile: UserProfile, currentTime: Date): string {
-  const hour = currentTime.getHours();
-  const goal = profile.fitnessGoal || 'MAINTENANCE';
-
-  if (hour >= 6 && hour < 9) {
-    return 'Get sunlight within 30 minutes of waking for optimal circadian rhythm 🌅';
-  } else if (hour >= 12 && hour < 13) {
-    return 'Take a 10-15min walk after lunch to reduce glucose spike 🚶';
-  } else if (hour >= 14 && hour < 16) {
-    return 'Afternoon dip? Try a 10-20min power nap or brief walk ⚡';
-  } else if (hour >= 17 && hour < 19) {
-    if (goal === 'MUSCLE_GAIN' || goal === 'PERFORMANCE') {
-      return 'Peak performance window - ideal time for strength training 💪';
-    } else {
-      return 'Evening walk before dinner improves digestion and sleep 🌆';
-    }
-  } else if (hour >= 20 && hour < 22) {
-    return 'Start dimming lights - prepare body for sleep in 2-3 hours 🌙';
-  } else {
-    return 'Consistency is key - stick to your planned schedule today ✨';
+  const questions = getQuickQuestions(profile, currentTime, 1);
+  
+  if (questions.length > 0) {
+    const question = questions[0];
+    return `${question.emoji} ${question.question}`;
   }
+  
+  // Fallback
+  return 'Consistency is key - stick to your planned schedule today ✨';
 }

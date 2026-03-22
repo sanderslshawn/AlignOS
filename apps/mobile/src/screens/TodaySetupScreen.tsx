@@ -3,18 +3,38 @@ import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Alert 
 import { usePlanStore } from '../store/planStore';
 import type { DayState, DayMode, ConstraintBlock, WorkoutEvent, MealEvent, MealType } from '@physiology-engine/shared';
 import { parseTimeString } from '@physiology-engine/shared';
+import { useTheme, PrimaryButton, Card, SectionTitle, AppIcon } from '@physiology-engine/ui';
+import { QUICK_STATUS_LABELS, QUICK_STATUS_SIGNALS, type QuickStatusSignal } from '../types/quickStatus';
+
+const dayModes: DayMode[] = ['tight', 'flex', 'recovery', 'high-output', 'low-output'];
+
+const dayModeInfo: Record<DayMode, { label: string; subtitle: string }> = {
+  tight: { label: 'Tight', subtitle: 'Back-to-back meetings' },
+  flex: { label: 'Flex', subtitle: 'Some control over time' },
+  recovery: { label: 'Recovery', subtitle: 'Rest day' },
+  'high-output': { label: 'High Output', subtitle: 'Peak performance' },
+  'low-output': { label: 'Low Output', subtitle: 'Relaxed day' },
+};
 
 export default function TodaySetupScreen({ navigation }: any) {
   const { profile, setupToday } = usePlanStore();
+  const { colors, typography, spacing, radius } = useTheme();
   const [dayMode, setDayMode] = useState<DayMode>(profile?.defaultDayMode || 'flex');
   const [sleepQuality, setSleepQuality] = useState('7');
   const [stressLevel, setStressLevel] = useState(profile?.stressBaseline.toString() || '5');
   const [currentHR, setCurrentHR] = useState('');
-  const [isHungry, setIsHungry] = useState(false);
-  const [isCraving, setIsCraving] = useState(false);
+  const [quickStatusSignals, setQuickStatusSignals] = useState<QuickStatusSignal[]>([]);
   const [constraints, setConstraints] = useState<ConstraintBlock[]>([]);
   const [plannedWorkouts, setPlannedWorkouts] = useState<WorkoutEvent[]>([]);
   const [plannedMeals, setPlannedMeals] = useState<MealEvent[]>([]);
+
+  const toggleQuickStatusSignal = (signal: QuickStatusSignal) => {
+    setQuickStatusSignals((current) =>
+      current.includes(signal)
+        ? current.filter((value) => value !== signal)
+        : [...current, signal]
+    );
+  };
 
   const handleStartDay = async () => {
     const now = new Date();
@@ -55,15 +75,33 @@ export default function TodaySetupScreen({ navigation }: any) {
         type: 'work',
         description: 'Work hours',
       });
+
+      const lunchDuration = profile.lunchDurationMin ?? 30;
+      const lunchStart = profile.lunchTime
+        ? parseTimeString(profile.lunchTime, now)
+        : new Date(workStart.getTime() + Math.floor((workEnd.getTime() - workStart.getTime()) / 2));
+      const lunchEnd = new Date(lunchStart.getTime() + lunchDuration * 60000);
+
+      if (lunchStart >= workStart && lunchEnd <= workEnd) {
+        workConstraints.push({
+          start: lunchStart,
+          end: lunchEnd,
+          type: 'appointment',
+          description: 'Lunch Break',
+        });
+      }
     }
     
     const dayState: DayState = {
+      deviceId: 'mobile-app',
+      dateKey: now.toISOString().split('T')[0],
       date: now,
       dayMode,
       currentTime: wakeTime,
       sleepQuality: parseInt(sleepQuality) || 7,
       stressLevel: parseInt(stressLevel) || 5,
       currentHR: currentHR ? parseInt(currentHR) : undefined,
+      events: [],
       plannedMeals,
       plannedCaffeine: [],
       plannedWalks: [],
@@ -71,63 +109,100 @@ export default function TodaySetupScreen({ navigation }: any) {
       plannedActivations: [],
       constraints: [...workConstraints, ...constraints],
       completedEvents: [],
-      isHungry,
-      isCraving,
+      isHungry: quickStatusSignals.includes('hungry-now'),
+      isCraving: quickStatusSignals.includes('craving-comfort'),
       removedStepIds: [],
       modifiedEvents: {},
+      computedPlan: [],
     };
+
+    (dayState as any).quickStatusSignals = quickStatusSignals;
     
     await setupToday(dayState);
-    navigation.navigate('Timeline');
+    navigation.navigate('MainTabs', { screen: 'Timeline' });
   };
 
-  const dayModes: DayMode[] = ['tight', 'flex', 'recovery', 'high-output', 'low-output'];
+  
+  const dayModeInfo = {
+    'tight': { label: 'Tight', subtitle: 'Packed schedule' },
+    'flex': { label: 'Flex', subtitle: 'Normal flexibility' },
+    'recovery': { label: 'Recovery', subtitle: 'Taking it easy' },
+    'high-output': { label: 'High Output', subtitle: 'Peak performance' },
+    'low-output': { label: 'Low Output', subtitle: 'Light day' },
+  };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>How's Today Looking?</Text>
-      <Text style={styles.subtitle}>Let's structure your day</Text>
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={[styles.content, { padding: spacing.lg }]}
+    >
+      <SectionTitle title="How's Today Looking?" subtitle="Let's structure your day" />
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Day Mode</Text>
-        <View style={styles.optionsContainer}>
+      <Card style={{ marginBottom: spacing.xl }}>
+        <Text style={[typography.bodyM, { color: colors.textSecondary, marginBottom: spacing.md, fontWeight: '600' }]}>
+          Day Mode
+        </Text>
+        <View style={styles.modesContainer}>
           {dayModes.map((mode) => (
             <TouchableOpacity
               key={mode}
-              style={[styles.option, dayMode === mode && styles.optionSelected]}
+              style={[
+                styles.modeButton,
+                {
+                  backgroundColor: dayMode === mode ? colors.accentSoft : colors.surface,
+                  borderColor: dayMode === mode ? colors.accentPrimary : colors.borderSubtle,
+                  borderRadius: radius.md,
+                  paddingVertical: spacing.md,
+                  paddingHorizontal: spacing.lg,
+                },
+              ]}
               onPress={() => setDayMode(mode)}
             >
-              <Text style={[styles.optionText, dayMode === mode && styles.optionTextSelected]}>
-                {mode}
+              <Text
+                style={[
+                  typography.bodyM,
+                  {
+                    color: dayMode === mode ? colors.accentPrimary : colors.textSecondary,
+                    fontWeight: '600',
+                    textAlign: 'center',
+                  },
+                ]}
+              >
+                {dayModeInfo[mode].label}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
-        <Text style={styles.hint}>
-          {dayMode === 'tight' && '⏱️ Packed schedule, need maximum efficiency'}
-          {dayMode === 'flex' && '🌊 Normal day with some flexibility'}
-          {dayMode === 'recovery' && '😌 Taking it easy, prioritize rest'}
-          {dayMode === 'high-output' && '🚀 Big deliverable, need peak performance'}
-          {dayMode === 'low-output' && '🏖️ Light day, minimal demands'}
+        <Text style={[typography.caption, { color: colors.textMuted, marginTop: spacing.md }]}>
+          {dayModeInfo[dayMode].subtitle}
         </Text>
-      </View>
+      </Card>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Sleep Quality (1-10)</Text>
-        <View style={styles.sliderContainer}>
+      <Card style={{ marginBottom: spacing.xl }}>
+        <Text style={[typography.bodyM, { color: colors.textSecondary, marginBottom: spacing.md, fontWeight: '600' }]}>
+          Sleep Quality (1-10)
+        </Text>
+        <View style={styles.gridContainer}>
           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
             <TouchableOpacity
               key={num}
               style={[
-                styles.sliderButton,
-                parseInt(sleepQuality) === num && styles.sliderButtonSelected,
+                styles.gridButton,
+                {
+                  backgroundColor: parseInt(sleepQuality) === num ? colors.accentSoft : colors.surface,
+                  borderColor: parseInt(sleepQuality) === num ? colors.accentPrimary : colors.borderSubtle,
+                  borderRadius: radius.sm,
+                },
               ]}
               onPress={() => setSleepQuality(num.toString())}
             >
               <Text
                 style={[
-                  styles.sliderButtonText,
-                  parseInt(sleepQuality) === num && styles.sliderButtonTextSelected,
+                  typography.bodyM,
+                  {
+                    color: parseInt(sleepQuality) === num ? colors.accentPrimary : colors.textSecondary,
+                    fontWeight: '600',
+                  },
                 ]}
               >
                 {num}
@@ -135,29 +210,38 @@ export default function TodaySetupScreen({ navigation }: any) {
             </TouchableOpacity>
           ))}
         </View>
-        <Text style={styles.hint}>
-          {parseInt(sleepQuality) <= 4 && '😴 Poor sleep - plan will prioritize energy management'}
-          {parseInt(sleepQuality) >= 5 && parseInt(sleepQuality) <= 7 && '😐 Average sleep - balanced approach'}
-          {parseInt(sleepQuality) >= 8 && '✨ Great sleep - you can push harder today'}
+        <Text style={[typography.caption, { color: colors.textMuted, marginTop: spacing.md }]}>
+          {parseInt(sleepQuality) <= 4 && 'Poor sleep - plan will prioritize energy management'}
+          {parseInt(sleepQuality) >= 5 && parseInt(sleepQuality) <= 7 && 'Average sleep - balanced approach'}
+          {parseInt(sleepQuality) >= 8 && 'Great sleep - you can push harder today'}
         </Text>
-      </View>
+      </Card>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Stress Level (1-10)</Text>
-        <View style={styles.sliderContainer}>
+      <Card style={{ marginBottom: spacing.xl }}>
+        <Text style={[typography.bodyM, { color: colors.textSecondary, marginBottom: spacing.md, fontWeight: '600' }]}>
+          Stress Level (1-10)
+        </Text>
+        <View style={styles.gridContainer}>
           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
             <TouchableOpacity
               key={num}
               style={[
-                styles.sliderButton,
-                parseInt(stressLevel) === num && styles.sliderButtonSelected,
+                styles.gridButton,
+                {
+                  backgroundColor: parseInt(stressLevel) === num ? colors.accentSoft : colors.surface,
+                  borderColor: parseInt(stressLevel) === num ? colors.accentPrimary : colors.borderSubtle,
+                  borderRadius: radius.sm,
+                },
               ]}
               onPress={() => setStressLevel(num.toString())}
             >
               <Text
                 style={[
-                  styles.sliderButtonText,
-                  parseInt(stressLevel) === num && styles.sliderButtonTextSelected,
+                  typography.bodyM,
+                  {
+                    color: parseInt(stressLevel) === num ? colors.accentPrimary : colors.textSecondary,
+                    fontWeight: '600',
+                  },
                 ]}
               >
                 {num}
@@ -165,46 +249,93 @@ export default function TodaySetupScreen({ navigation }: any) {
             </TouchableOpacity>
           ))}
         </View>
-        <Text style={styles.hint}>
-          {parseInt(stressLevel) <= 3 && '😌 Low stress - plenty of capacity'}
-          {parseInt(stressLevel) >= 4 && parseInt(stressLevel) <= 7 && '😐 Moderate stress - manageable'}
-          {parseInt(stressLevel) >= 8 && '😰 High stress - plan will be gentler'}
+        <Text style={[typography.caption, { color: colors.textMuted, marginTop: spacing.md }]}>
+          {parseInt(stressLevel) <= 3 && 'Low stress - plenty of capacity'}
+          {parseInt(stressLevel) >= 4 && parseInt(stressLevel) <= 7 && 'Moderate stress - manageable'}
+          {parseInt(stressLevel) >= 8 && 'High stress - plan will be gentler'}
         </Text>
-      </View>
+      </Card>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Current Heart Rate (optional)</Text>
+      <Card style={{ marginBottom: spacing.xl }}>
+        <Text style={[typography.bodyM, { color: colors.textSecondary, marginBottom: spacing.md, fontWeight: '600' }]}>
+          Current Heart Rate (optional)
+        </Text>
         <TextInput
-          style={styles.input}
+          style={[
+            styles.input,
+            typography.bodyL,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.borderSubtle,
+              borderRadius: radius.md,
+              padding: spacing.md,
+              color: colors.textPrimary,
+            },
+          ]}
           value={currentHR}
           onChangeText={setCurrentHR}
           keyboardType="numeric"
           placeholder={profile?.restingHR?.toString() || '60'}
-          placeholderTextColor="#666"
+          placeholderTextColor={colors.textMuted}
         />
-      </View>
+      </Card>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Quick Status</Text>
+      <Card style={{ marginBottom: spacing.xl }}>
+        <Text style={[typography.bodyM, { color: colors.textSecondary, marginBottom: spacing.md, fontWeight: '600' }]}>
+          Quick Status
+        </Text>
         <View style={styles.statusRow}>
-          <TouchableOpacity
-            style={[styles.statusButton, isHungry && styles.statusButtonActive]}
-            onPress={() => setIsHungry(!isHungry)}
-          >
-            <Text style={[styles.statusButtonText, isHungry && styles.statusButtonTextActive]}>
-              🍽️ Hungry now
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.statusButton, isCraving && styles.statusButtonActive]}
-            onPress={() => setIsCraving(!isCraving)}
-          >
-            <Text style={[styles.statusButtonText, isCraving && styles.statusButtonTextActive]}>
-              🍰 Craving comfort food
-            </Text>
-          </TouchableOpacity>
+          {QUICK_STATUS_SIGNALS.map((signal) => {
+            const active = quickStatusSignals.includes(signal);
+            const iconName =
+              signal === 'hungry-now'
+                ? 'meal'
+                : signal === 'craving-comfort'
+                  ? 'sparkles'
+                  : signal === 'low-energy'
+                    ? 'flash'
+                    : signal === 'high-stress'
+                      ? 'alert'
+                      : signal === 'dehydrated'
+                        ? 'water'
+                        : signal === 'poor-sleep'
+                          ? 'sleep'
+                          : 'brain';
+
+            return (
+              <TouchableOpacity
+                key={signal}
+                style={[
+                  styles.statusButton,
+                  {
+                    backgroundColor: active ? colors.accentSoft : colors.surface,
+                    borderColor: active ? colors.accentPrimary : colors.borderSubtle,
+                    borderRadius: radius.md,
+                    padding: spacing.md,
+                  },
+                ]}
+                onPress={() => toggleQuickStatusSignal(signal)}
+              >
+                <AppIcon name={iconName as any} size={18} color={active ? colors.accentPrimary : colors.textSecondary} />
+                <Text
+                  style={[
+                    typography.bodyM,
+                    {
+                      color: active ? colors.accentPrimary : colors.textSecondary,
+                      marginTop: spacing.xs,
+                      fontWeight: '500',
+                      textAlign: 'center',
+                      fontSize: 12,
+                    },
+                  ]}
+                >
+                  {QUICK_STATUS_LABELS[signal]}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
-      </View>
+      </Card>
 
       {/* Constraints Section */}
       <View style={styles.section}>
@@ -223,13 +354,13 @@ export default function TodaySetupScreen({ navigation }: any) {
                       { text: 'Cancel', style: 'cancel' },
                       {
                         text: 'Next',
-                        onPress: (startTime) => {
+                        onPress: (startTime: string | undefined) => {
                           if (startTime) {
                             Alert.prompt('Meeting End Time', 'End time (HH:MM)', [
                               { text: 'Cancel', style: 'cancel' },
                               {
                                 text: 'Add',
-                                onPress: (endTime) => {
+                                onPress: (endTime: string | undefined) => {
                                   if (endTime) {
                                     const now = new Date();
                                     const start = parseTimeString(startTime, now);
@@ -252,13 +383,13 @@ export default function TodaySetupScreen({ navigation }: any) {
                       { text: 'Cancel', style: 'cancel' },
                       {
                         text: 'Next',
-                        onPress: (startTime) => {
+                        onPress: (startTime: string | undefined) => {
                           if (startTime) {
                             Alert.prompt('Workout End Time', 'End time (HH:MM)', [
                               { text: 'Cancel', style: 'cancel' },
                               {
                                 text: 'Add',
-                                onPress: (endTime) => {
+                                onPress: (endTime: string | undefined) => {
                                   if (endTime) {
                                     const now = new Date();
                                     const start = parseTimeString(startTime, now);
@@ -267,7 +398,9 @@ export default function TodaySetupScreen({ navigation }: any) {
                                     setConstraints([...constraints, { start, end, type: 'exercise', description: 'Workout' }]);
                                     setPlannedWorkouts([...plannedWorkouts, {
                                       type: 'workout',
+                                      status: 'PLANNED',
                                       time: start,
+                                      source: 'USER',
                                       duration,
                                       intensity: 'moderate',
                                     }]);
@@ -288,13 +421,13 @@ export default function TodaySetupScreen({ navigation }: any) {
                       { text: 'Cancel', style: 'cancel' },
                       {
                         text: 'Next',
-                        onPress: (startTime) => {
+                        onPress: (startTime: string | undefined) => {
                           if (startTime) {
                             Alert.prompt('Appointment End Time', 'End time (HH:MM)', [
                               { text: 'Cancel', style: 'cancel' },
                               {
                                 text: 'Add',
-                                onPress: (endTime) => {
+                                onPress: (endTime: string | undefined) => {
                                   if (endTime) {
                                     const now = new Date();
                                     const start = parseTimeString(startTime, now);
@@ -357,13 +490,15 @@ export default function TodaySetupScreen({ navigation }: any) {
                     { text: 'Cancel', style: 'cancel' },
                     {
                       text: 'Add',
-                      onPress: (time) => {
+                      onPress: (time: string | undefined) => {
                         if (time) {
                           const now = new Date();
                           const mealTime = parseTimeString(time, now);
                           setPlannedMeals([...plannedMeals, {
                             type: 'meal',
+                            status: 'PLANNED',
                             time: mealTime,
+                            source: 'USER',
                             mealType: type,
                           }]);
                         }
@@ -371,7 +506,7 @@ export default function TodaySetupScreen({ navigation }: any) {
                     },
                   ]);
                 },
-              })).concat([{ text: 'Cancel', style: 'cancel' }])
+              })).concat([{ text: 'Cancel', style: 'cancel' } as any])
             );
           }}>
             <Text style={styles.addButton}>+ Add</Text>
@@ -398,9 +533,9 @@ export default function TodaySetupScreen({ navigation }: any) {
         )}
       </View>
 
-      <TouchableOpacity style={styles.button} onPress={handleStartDay}>
-        <Text style={styles.buttonText}>Generate My Plan</Text>
-      </TouchableOpacity>
+      <PrimaryButton onPress={handleStartDay}>
+        Generate My Plan
+      </PrimaryButton>
     </ScrollView>
   );
 }
@@ -408,167 +543,86 @@ export default function TodaySetupScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
   },
   content: {
-    padding: 20,
     paddingBottom: 40,
   },
-  title: {
-    color: '#00ff88',
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 8,
+  modesContainer: {
+    gap: 8,
   },
-  subtitle: {
-    color: '#666',
-    fontSize: 16,
-    marginBottom: 32,
+  modeButton: {
+    borderWidth: 1,
+  },
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  gridButton: {
+    width: 60,
+    height: 48,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  input: {
+    borderWidth: 1,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  statusButton: {
+    width: '47%',
+    borderWidth: 1,
+    alignItems: 'center',
   },
   section: {
-    marginBottom: 32,
+    marginBottom: 24,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   sectionTitle: {
-    color: '#fff',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
   },
   addButton: {
-    color: '#00ff88',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
   },
+  hint: {
+    fontSize: 13,
+    marginBottom: 8,
+  },
   constraintList: {
-    gap: 8,
+    marginTop: 8,
   },
   constraintItem: {
-    backgroundColor: '#111',
-    borderWidth: 1,
-    borderColor: '#333',
-    borderRadius: 8,
-    padding: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    borderRadius: 8,
   },
   constraintTitle: {
-    color: '#fff',
-    fontSize: 16,
-    marginBottom: 4,
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
   },
   constraintTime: {
-    color: '#888',
-    fontSize: 14,
+    fontSize: 12,
+    marginRight: 12,
   },
   removeButton: {
-    color: '#ff4444',
-    fontSize: 20,
-    padding: 4,
-  },
-  optionsContainer: {
-    gap: 8,
-  },
-  option: {
-    backgroundColor: '#111',
-    borderWidth: 1,
-    borderColor: '#333',
-    borderRadius: 8,
-    padding: 16,
-    alignItems: 'center',
-  },
-  optionSelected: {
-    borderColor: '#00ff88',
-    backgroundColor: '#001a0f',
-  },
-  optionText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  optionTextSelected: {
-    color: '#00ff88',
-  },
-  sliderContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  sliderButton: {
-    width: 60,
-    height: 48,
-    backgroundColor: '#111',
-    borderWidth: 1,
-    borderColor: '#333',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sliderButtonSelected: {
-    borderColor: '#00ff88',
-    backgroundColor: '#001a0f',
-  },
-  sliderButtonText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  sliderButtonTextSelected: {
-    color: '#00ff88',
-  },
-  hint: {
-    color: '#666',
-    fontSize: 14,
-    marginTop: 8,
-    fontStyle: 'italic',
-  },
-  input: {
-    backgroundColor: '#111',
-    borderWidth: 1,
-    borderColor: '#333',
-    borderRadius: 8,
-    padding: 12,
-    color: '#fff',
-    fontSize: 16,
-  },
-  statusRow: {
-    gap: 8,
-  },
-  statusButton: {
-    backgroundColor: '#111',
-    borderWidth: 1,
-    borderColor: '#333',
-    borderRadius: 8,
-    padding: 16,
-    alignItems: 'center',
-  },
-  statusButtonActive: {
-    borderColor: '#00ff88',
-    backgroundColor: '#001a0f',
-  },
-  statusButtonText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  statusButtonTextActive: {
-    color: '#00ff88',
-  },
-  button: {
-    backgroundColor: '#00ff88',
-    borderRadius: 8,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  buttonText: {
-    color: '#000',
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: 'bold',
+    paddingHorizontal: 8,
   },
 });

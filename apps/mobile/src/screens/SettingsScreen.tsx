@@ -10,32 +10,61 @@ import {
   Alert,
 } from 'react-native';
 import { usePlanStore } from '../store/planStore';
+import { getApiBaseUrl } from '../utils/apiBaseUrl';
+import { parseTimeToMinutes, minutesToHHmm } from '../utils/time';
+import ClockTimeField from '../components/ClockTimeField';
+import { formatClockTime, parseClockTime } from '../utils/clockTime';
 import { useThemeStore } from '../store/themeStore';
 import { useHabitStore } from '../store/habitStore';
-import type { UserProfile, DayMode, DietFoundation, FitnessGoal } from '@physiology-engine/shared';
+import type { UserProfile, DayMode, DietFoundation, FitnessGoal, ClockTime } from '@physiology-engine/shared';
 import { useNavigation } from '@react-navigation/native';
 import { 
   requestNotificationPermissions, 
   loadNotificationSettings, 
   saveNotificationSettings,
+  cancelAllNotifications,
+  getScheduledNotificationsDebugInfo,
   scheduleDayPlanNotifications,
   type NotificationSettings 
 } from '../utils/notifications';
 import * as Haptics from 'expo-haptics';
 
+type RhythmConfidence = 'low' | 'medium' | 'high';
+
+interface RhythmProfile {
+  daysObserved: number;
+  confidence: RhythmConfidence;
+  rollingMedians: {
+    wake?: string;
+    sleep?: string;
+    firstMeal?: string;
+    lunch?: string;
+    lastMeal?: string;
+  };
+  commonBins: {
+    walk: string[];
+    workout: string[];
+  };
+  adherenceScore: number;
+  disruptionWindows: number[];
+}
+
 export default function SettingsScreen() {
   const navigation = useNavigation();
-  const { profile, saveProfile, todayEntries, fullDayPlan } = usePlanStore();
+  const { profile, saveProfile, todayEntries, fullDayPlan, deviceId } = usePlanStore();
   const { mode: themeMode, setThemeMode } = useThemeStore();
   const { habits } = useHabitStore();
+  const API_BASE_URL = getApiBaseUrl();
   
   const [editedProfile, setEditedProfile] = useState<UserProfile | null>(profile);
   const [hasChanges, setHasChanges] = useState(false);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
+  const [rhythmProfile, setRhythmProfile] = useState<RhythmProfile | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     schedule: true,
     weekend: false,
     work: false,
+    rhythm: false,
     physiology: false,
     preferences: false,
     notifications: false,
@@ -47,6 +76,39 @@ export default function SettingsScreen() {
   useEffect(() => {
     loadNotificationSettings().then(setNotificationSettings);
   }, []);
+
+  useEffect(() => {
+    const resyncNotifications = async () => {
+      if (!notificationSettings || !fullDayPlan || !editedProfile) return;
+
+      if (!notificationSettings.enabled) {
+        await cancelAllNotifications();
+        return;
+      }
+
+      await scheduleDayPlanNotifications(fullDayPlan, editedProfile, notificationSettings);
+    };
+
+    resyncNotifications().catch((error) => {
+      console.warn('[Settings] Failed to resync notifications', error);
+    });
+  }, [notificationSettings, fullDayPlan, editedProfile]);
+
+  useEffect(() => {
+    const loadRhythm = async () => {
+      if (!deviceId) return;
+      try {
+        const response = await fetch(`${API_BASE_URL}/day/${deviceId}/rhythm`);
+        if (!response.ok) return;
+        const payload = (await response.json()) as RhythmProfile;
+        setRhythmProfile(payload);
+      } catch (error) {
+        console.warn('[Settings] Failed to load rhythm profile', error);
+      }
+    };
+
+    void loadRhythm();
+  }, [deviceId]);
 
   if (!editedProfile) {
     return (
@@ -63,7 +125,67 @@ export default function SettingsScreen() {
   }
 
   const handleUpdate = (field: keyof UserProfile, value: any) => {
-    setEditedProfile({ ...editedProfile!, [field]: value });
+    const nextProfile: UserProfile = { ...editedProfile!, [field]: value };
+
+    const timeToMinField: Partial<Record<keyof UserProfile, keyof UserProfile>> = {
+      wakeTime: 'wakeMin',
+      sleepTime: 'sleepMin',
+      workStartTime: 'workStartMin',
+      workEndTime: 'workEndMin',
+      lunchTime: 'lunchStartMin',
+    };
+
+    const matchedMinuteField = timeToMinField[field];
+    if (matchedMinuteField && typeof value === 'string') {
+      const minutes = parseTimeToMinutes(value);
+      if (minutes !== null && minutes !== undefined) {
+        (nextProfile as any)[field] = minutesToHHmm(minutes);
+        (nextProfile as any)[matchedMinuteField] = minutes;
+      }
+    }
+
+    if (typeof value === 'object' && value?.hour && value?.minute !== undefined) {
+      const clockTime = parseClockTime(value as ClockTime);
+      if (clockTime && matchedMinuteField) {
+        const hhmm = minutesToHHmm((clockTime.period === 'PM' ? (clockTime.hour % 12) + 12 : clockTime.hour % 12) * 60 + clockTime.minute);
+        (nextProfile as any)[field] = hhmm;
+        (nextProfile as any)[matchedMinuteField] = parseTimeToMinutes(hhmm);
+      }
+    }
+
+    setEditedProfile(nextProfile);
+    setHasChanges(true);
+  };
+
+  const handleClockFieldUpdate = (
+    field: keyof UserProfile,
+    clockField: keyof UserProfile,
+    value: ClockTime
+  ) => {
+    if (!editedProfile) return;
+    const formatted = formatClockTime(value);
+    const minutes = parseTimeToMinutes(minutesToHHmm((value.period === 'PM' ? (value.hour % 12) + 12 : value.hour % 12) * 60 + value.minute));
+    const nextProfile: UserProfile = {
+      ...editedProfile,
+      [field]: formatted,
+      [clockField]: value,
+    } as UserProfile;
+
+    const timeToMinField: Partial<Record<keyof UserProfile, keyof UserProfile>> = {
+      wakeTime: 'wakeMin',
+      sleepTime: 'sleepMin',
+      workStartTime: 'workStartMin',
+      workEndTime: 'workEndMin',
+      lunchTime: 'lunchStartMin',
+    };
+
+    const minField = timeToMinField[field];
+    if (minField && minutes !== null && minutes !== undefined) {
+      (nextProfile as any)[minField] = minutes;
+      (nextProfile as any)[field] = minutesToHHmm(minutes);
+    }
+
+    setEditedProfile(nextProfile);
     setHasChanges(true);
   };
 
@@ -99,11 +221,45 @@ export default function SettingsScreen() {
   const handleEnableNotifications = async () => {
     const granted = await requestNotificationPermissions();
     if (granted) {
-      await handleNotificationUpdate('enabled', true);
+      if (!notificationSettings) return;
+      const updated = {
+        ...notificationSettings,
+        enabled: true,
+        hasPermission: true,
+      };
+      setNotificationSettings(updated);
+      await saveNotificationSettings(updated);
+
+      if (fullDayPlan && editedProfile) {
+        await scheduleDayPlanNotifications(fullDayPlan, editedProfile, updated);
+      }
+
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       Alert.alert('Success', 'Notifications enabled! You\'ll receive smart reminders based on your schedule.');
     } else {
+      if (notificationSettings) {
+        const updated = {
+          ...notificationSettings,
+          enabled: false,
+          hasPermission: false,
+        };
+        setNotificationSettings(updated);
+        await saveNotificationSettings(updated);
+      }
       Alert.alert('Permission Denied', 'Please enable notifications in your device settings to receive reminders.');
     }
+  };
+
+  const handleCheckScheduledNotifications = async () => {
+    const debugInfo = await getScheduledNotificationsDebugInfo();
+    const enabledSetting = notificationSettings?.enabled ? 'on' : 'off';
+    const sampleIds = debugInfo.identifiers.length ? `\nSample IDs: ${debugInfo.identifiers.join(', ')}` : '';
+
+    Alert.alert(
+      'Notification Debug',
+      `Permission: ${debugInfo.hasPermission ? 'granted' : 'not granted'}\nSetting enabled: ${enabledSetting}\nScheduled count: ${debugInfo.count}${sampleIds}`
+    );
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const handleReset = () => {
@@ -176,6 +332,18 @@ export default function SettingsScreen() {
     'GENERAL_HEALTH',
   ];
 
+  const confidenceLabel =
+    rhythmProfile?.confidence === 'high'
+      ? 'High'
+      : rhythmProfile?.confidence === 'medium'
+        ? 'Med'
+        : 'Low';
+
+  const fallbackUseLearnedRhythm =
+    (rhythmProfile?.confidence === 'medium' || rhythmProfile?.confidence === 'high');
+
+  const useLearnedRhythm = editedProfile.useLearnedRhythm ?? fallbackUseLearnedRhythm;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.header}>⚙️ Settings</Text>
@@ -197,7 +365,7 @@ export default function SettingsScreen() {
             <Switch
               value={editedProfile?.useWeekendSchedule ?? false}
               onValueChange={(value) => handleUpdate('useWeekendSchedule', value)}
-              trackColor={{ false: '#444', true: '#00ff88' }}
+              trackColor={{ false: '#444', true: '#22D3EE' }}
               thumbColor="#fff"
             />
           </View>
@@ -273,7 +441,7 @@ export default function SettingsScreen() {
               onValueChange={(value) => 
                 value ? handleEnableNotifications() : handleNotificationUpdate('enabled', value)
               }
-              trackColor={{ false: '#444', true: '#00ff88' }}
+              trackColor={{ false: '#444', true: '#22D3EE' }}
               thumbColor="#fff"
             />
           </View>
@@ -289,7 +457,7 @@ export default function SettingsScreen() {
                 <Switch
                   value={notificationSettings.mealReminders}
                   onValueChange={(value) => handleNotificationUpdate('mealReminders', value)}
-                  trackColor={{ false: '#444', true: '#00ff88' }}
+                  trackColor={{ false: '#444', true: '#22D3EE' }}
                   thumbColor="#fff"
                 />
               </View>
@@ -299,7 +467,7 @@ export default function SettingsScreen() {
                 <Switch
                   value={notificationSettings.workoutReminders}
                   onValueChange={(value) => handleNotificationUpdate('workoutReminders', value)}
-                  trackColor={{ false: '#444', true: '#00ff88' }}
+                  trackColor={{ false: '#444', true: '#22D3EE' }}
                   thumbColor="#fff"
                 />
               </View>
@@ -309,7 +477,7 @@ export default function SettingsScreen() {
                 <Switch
                   value={notificationSettings.walkReminders}
                   onValueChange={(value) => handleNotificationUpdate('walkReminders', value)}
-                  trackColor={{ false: '#444', true: '#00ff88' }}
+                  trackColor={{ false: '#444', true: '#22D3EE' }}
                   thumbColor="#fff"
                 />
               </View>
@@ -319,7 +487,7 @@ export default function SettingsScreen() {
                 <Switch
                   value={notificationSettings.hydrationReminders}
                   onValueChange={(value) => handleNotificationUpdate('hydrationReminders', value)}
-                  trackColor={{ false: '#444', true: '#00ff88' }}
+                  trackColor={{ false: '#444', true: '#22D3EE' }}
                   thumbColor="#fff"
                 />
               </View>
@@ -329,7 +497,7 @@ export default function SettingsScreen() {
                 <Switch
                   value={notificationSettings.energyAlerts}
                   onValueChange={(value) => handleNotificationUpdate('energyAlerts', value)}
-                  trackColor={{ false: '#444', true: '#00ff88' }}
+                  trackColor={{ false: '#444', true: '#22D3EE' }}
                   thumbColor="#fff"
                 />
               </View>
@@ -339,7 +507,7 @@ export default function SettingsScreen() {
                 <Switch
                   value={notificationSettings.morningMotivation}
                   onValueChange={(value) => handleNotificationUpdate('morningMotivation', value)}
-                  trackColor={{ false: '#444', true: '#00ff88' }}
+                  trackColor={{ false: '#444', true: '#22D3EE' }}
                   thumbColor="#fff"
                 />
               </View>
@@ -349,7 +517,7 @@ export default function SettingsScreen() {
                 <Switch
                   value={notificationSettings.eveningWindown}
                   onValueChange={(value) => handleNotificationUpdate('eveningWindown', value)}
-                  trackColor={{ false: '#444', true: '#00ff88' }}
+                  trackColor={{ false: '#444', true: '#22D3EE' }}
                   thumbColor="#fff"
                 />
               </View>
@@ -404,6 +572,13 @@ export default function SettingsScreen() {
                   placeholderTextColor="#666"
                 />
               </View>
+
+              <TouchableOpacity
+                style={[styles.primaryButton, { marginTop: 8 }]}
+                onPress={handleCheckScheduledNotifications}
+              >
+                <Text style={styles.primaryButtonText}>Check Scheduled Notifications</Text>
+              </TouchableOpacity>
             </>
           )}
         </View>
@@ -523,30 +698,34 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           <View style={styles.row}>
             <Text style={styles.label}>Wake Time</Text>
-            <TextInput
-              style={styles.input}
-              value={editedProfile.wakeTime}
-              onChangeText={(text) => handleUpdate('wakeTime', text)}
-              placeholder="HH:MM"
-              placeholderTextColor="#666"
+            <ClockTimeField
+              value={editedProfile.wakeClockTime || parseClockTime(editedProfile.wakeTime)}
+              onChange={(value) => handleClockFieldUpdate('wakeTime', 'wakeClockTime', value)}
+              placeholder="7:00 AM"
             />
           </View>
 
           <View style={styles.row}>
             <Text style={styles.label}>Sleep Time</Text>
-            <TextInput
-              style={styles.input}
-              value={editedProfile.sleepTime}
-              onChangeText={(text) => handleUpdate('sleepTime', text)}
-              placeholder="HH:MM"
-              placeholderTextColor="#666"
+            <ClockTimeField
+              value={editedProfile.sleepClockTime || parseClockTime(editedProfile.sleepTime)}
+              onChange={(value) => handleClockFieldUpdate('sleepTime', 'sleepClockTime', value)}
+              placeholder="11:00 PM"
             />
           </View>
 
           <View style={styles.row}>
-            <Text style={styles.label}>Fasting Hours</Text>
+            <View style={styles.inlineLabelContainer}>
+              <Text style={[styles.label, styles.inlineLabelText]}>Fasting Hours</Text>
+              <TouchableOpacity
+                onPress={() => (navigation as any).navigate('HelpCenter', { initialTab: 'glossary', term: 'fasting' })}
+                style={{ marginLeft: 6 }}
+              >
+                <Text style={{ color: '#22D3EE', fontWeight: '700' }}>?</Text>
+              </TouchableOpacity>
+            </View>
             <TextInput
-              style={styles.input}
+              style={[styles.input, styles.numericInput]}
               value={editedProfile.preferredFastingHours.toString()}
               onChangeText={(text) => handleUpdate('preferredFastingHours', parseInt(text) || 0)}
               keyboardType="number-pad"
@@ -570,23 +749,19 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           <View style={styles.row}>
             <Text style={styles.label}>Work Start</Text>
-            <TextInput
-              style={styles.input}
-              value={editedProfile.workStartTime || ''}
-              onChangeText={(text) => handleUpdate('workStartTime', text || undefined)}
-              placeholder="09:00"
-              placeholderTextColor="#666"
+            <ClockTimeField
+              value={editedProfile.workStartClockTime || parseClockTime(editedProfile.workStartTime)}
+              onChange={(value) => handleClockFieldUpdate('workStartTime', 'workStartClockTime', value)}
+              placeholder="9:00 AM"
             />
           </View>
 
           <View style={styles.row}>
             <Text style={styles.label}>Work End</Text>
-            <TextInput
-              style={styles.input}
-              value={editedProfile.workEndTime || ''}
-              onChangeText={(text) => handleUpdate('workEndTime', text || undefined)}
-              placeholder="17:00"
-              placeholderTextColor="#666"
+            <ClockTimeField
+              value={editedProfile.workEndClockTime || parseClockTime(editedProfile.workEndTime)}
+              onChange={(value) => handleClockFieldUpdate('workEndTime', 'workEndClockTime', value)}
+              placeholder="5:00 PM"
             />
           </View>
 
@@ -601,6 +776,69 @@ export default function SettingsScreen() {
               placeholderTextColor="#666"
             />
           </View>
+
+          <View style={styles.row}>
+            <Text style={styles.label}>Lunch Time</Text>
+            <ClockTimeField
+              value={editedProfile.lunchClockTime || parseClockTime(editedProfile.lunchTime)}
+              onChange={(value) => handleClockFieldUpdate('lunchTime', 'lunchClockTime', value)}
+              placeholder="12:30 PM"
+            />
+          </View>
+
+          <View style={styles.row}>
+            <Text style={styles.label}>Lunch Duration (min)</Text>
+            <TextInput
+              style={styles.input}
+              value={(editedProfile.lunchDurationMin || 30).toString()}
+              onChangeText={(text) => handleUpdate('lunchDurationMin', text ? parseInt(text) : 30)}
+              keyboardType="number-pad"
+              placeholder="30"
+              placeholderTextColor="#666"
+            />
+          </View>
+        </View>
+      )}
+
+      {/* Rhythm Learning Section */}
+      <TouchableOpacity
+        style={styles.sectionHeader}
+        onPress={() => toggleSection('rhythm')}
+      >
+        <Text style={styles.sectionTitle}>🧠 System Learned</Text>
+        <Text style={styles.expandIcon}>{expandedSections.rhythm ? '▼' : '▶'}</Text>
+      </TouchableOpacity>
+
+      {expandedSections.rhythm && (
+        <View style={styles.section}>
+          <View style={styles.row}>
+            <Text style={styles.label}>Use Learned Rhythm</Text>
+            <Switch
+              value={useLearnedRhythm}
+              onValueChange={(value) => handleUpdate('useLearnedRhythm', value)}
+              trackColor={{ false: '#444', true: '#22D3EE' }}
+              thumbColor="#fff"
+            />
+          </View>
+
+          <Text style={styles.helpText}>
+            Confidence: {confidenceLabel} • Days observed: {rhythmProfile?.daysObserved || 0}
+          </Text>
+          <Text style={styles.helpText}>Adherence: {Math.round((rhythmProfile?.adherenceScore || 0) * 100)}%</Text>
+
+          <Text style={[styles.label, { marginTop: 8, marginBottom: 6 }]}>Learned Medians</Text>
+          <Text style={styles.helpText}>Wake: {rhythmProfile?.rollingMedians.wake || '--:--'}</Text>
+          <Text style={styles.helpText}>Sleep: {rhythmProfile?.rollingMedians.sleep || '--:--'}</Text>
+          <Text style={styles.helpText}>First Meal: {rhythmProfile?.rollingMedians.firstMeal || '--:--'}</Text>
+          <Text style={styles.helpText}>Lunch: {rhythmProfile?.rollingMedians.lunch || '--:--'}</Text>
+          <Text style={styles.helpText}>Last Meal: {rhythmProfile?.rollingMedians.lastMeal || '--:--'}</Text>
+
+          <Text style={[styles.label, { marginTop: 8, marginBottom: 6 }]}>Common Anchor Bins</Text>
+          <Text style={styles.helpText}>Walk: {rhythmProfile?.commonBins.walk?.join(', ') || '--'}</Text>
+          <Text style={styles.helpText}>Workout: {rhythmProfile?.commonBins.workout?.join(', ') || '--'}</Text>
+          <Text style={styles.helpText}>
+            Disruption windows: {rhythmProfile?.disruptionWindows?.length ? rhythmProfile.disruptionWindows.map((hour) => `${hour}:00`).join(', ') : '--'}
+          </Text>
         </View>
       )}
 
@@ -620,7 +858,7 @@ export default function SettingsScreen() {
             <Switch
               value={editedProfile.caffeineToleranceLow}
               onValueChange={(value) => handleUpdate('caffeineToleranceLow', value)}
-              trackColor={{ false: '#444', true: '#14967F' }}
+              trackColor={{ false: '#444', true: '#22D3EE' }}
               thumbColor="#fff"
             />
           </View>
@@ -780,7 +1018,7 @@ export default function SettingsScreen() {
             <Switch
               value={editedProfile.allowComfortWindow}
               onValueChange={(value) => handleUpdate('allowComfortWindow', value)}
-              trackColor={{ false: '#333', true: '#00ff88' }}
+              trackColor={{ false: '#333', true: '#22D3EE' }}
               thumbColor={editedProfile.allowComfortWindow ? '#fff' : '#ccc'}
             />
           </View>
@@ -818,9 +1056,21 @@ export default function SettingsScreen() {
       {/* App Info */}
       <View style={[styles.section, { marginBottom: 40 }]}>
         <Text style={styles.sectionTitle}>About</Text>
-        <Text style={styles.infoText}>Physiology Engine</Text>
+        <Text style={styles.infoText}>AlignOS</Text>
         <Text style={styles.infoText}>Version 1.0.0</Text>
         <Text style={styles.infoSubtext}>Metabolic rhythm optimization</Text>
+        <TouchableOpacity
+          style={[styles.primaryButton, { marginTop: 12 }]}
+          onPress={() => (navigation as any).navigate('HelpCenter')}
+        >
+          <Text style={styles.primaryButtonText}>Open Help & Glossary</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.primaryButton, { marginTop: 8 }]}
+          onPress={() => (navigation as any).navigate('LearnAlignOSTour')}
+        >
+          <Text style={styles.primaryButtonText}>Learn AlignOS</Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -874,7 +1124,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#00ff88',
+    color: '#22D3EE',
     flex: 1,
   },
   expandIcon: {
@@ -887,6 +1137,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+  },
+  inlineLabelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
+  },
+  inlineLabelText: {
+    flex: 0,
+    flexShrink: 1,
   },
   label: {
     fontSize: 16,
@@ -916,6 +1176,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#333',
   },
+  numericInput: {
+    width: 88,
+    minWidth: 88,
+    flexShrink: 0,
+  },
   smallInput: {
     backgroundColor: '#1a1a1a',
     color: '#fff',
@@ -942,8 +1207,8 @@ const styles = StyleSheet.create({
     borderColor: '#333',
   },
   chipSelected: {
-    backgroundColor: '#00ff88',
-    borderColor: '#00ff88',
+    backgroundColor: '#22D3EE',
+    borderColor: '#22D3EE',
   },
   chipText: {
     color: '#888',
@@ -955,15 +1220,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   primaryButton: {
-    backgroundColor: '#00ff88',
+    backgroundColor: '#22D3EE',
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
-    shadowColor: '#00ff88',
+    shadowColor: 'transparent',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0,
     shadowRadius: 8,
-    elevation: 8,
+    elevation: 2,
   },
   primaryButtonText: {
     color: '#000',
@@ -971,12 +1236,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   saveButton: {
-    backgroundColor: '#00ff88',
+    backgroundColor: '#22D3EE',
     padding: 18,
     borderRadius: 14,
     alignItems: 'center',
     marginBottom: 24,
-    shadowColor: '#00ff88',
+    shadowColor: '#22D3EE',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.4,
     shadowRadius: 12,
@@ -989,7 +1254,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   button: {
-    backgroundColor: '#00ff88',
+    backgroundColor: '#22D3EE',
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
@@ -1033,7 +1298,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   moreText: {
-    color: '#00ff88',
+    color: '#22D3EE',
     fontSize: 14,
     textAlign: 'center',
     marginTop: 8,

@@ -1,0 +1,12 @@
+export type MutationIntent =
+  | 'ADD'
+  | 'EDIT'
+  | 'DELETE'
+  | 'REGENERATE'
+  | 'DELETE_VALIDATE_ONLY'
+  | 'RECOMPUTE'
+  | 'RECOMPUTE_FROM_NOW'
+  | 'SELF_HEAL'
+  | 'ADVISOR_INSERT'
+  | 'COPY_TODAY_STRUCTURE'
+  | 'GENERATE_TOMORROW';

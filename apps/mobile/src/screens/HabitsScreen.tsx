@@ -75,10 +75,7 @@ export default function HabitsScreen() {
   return (
     <View style={styles.container}>
       {/* Header with Stats */}
-      <LinearGradient
-        colors={['#00ff88', '#14967F', '#0a7a5a']}
-        style={styles.headerGradient}
-      >
+      <View style={styles.headerGradient}>
         <Text style={styles.headerTitle}>📋 Habits</Text>
         <Text style={styles.headerSubtitle}>Build lasting routines</Text>
         
@@ -96,7 +93,7 @@ export default function HabitsScreen() {
             <Text style={styles.statLabel}>Due Today</Text>
           </View>
         </View>
-      </LinearGradient>
+      </View>
       
       <ScrollView style={styles.scrollView}>
         {/* Today's Habits */}
@@ -249,7 +246,7 @@ export default function HabitsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#0F1115',
   },
   headerGradient: {
     padding: 24,
@@ -259,12 +256,12 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#000',
+    color: '#0F1115',
     marginBottom: 4,
   },
   headerSubtitle: {
     fontSize: 16,
-    color: '#0a7a5a',
+    color: '#156773',
     marginBottom: 20,
   },
   statsContainer: {
@@ -278,11 +275,11 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#000',
+    color: '#0F1115',
   },
   statLabel: {
     fontSize: 13,
-    color: '#0a7a5a',
+    color: '#156773',
     marginTop: 4,
   },
   scrollView: {
@@ -295,23 +292,23 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#F3F4F6',
     marginBottom: 16,
   },
   habitCard: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#1B202B',
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#333',
+    borderWidth: 1,
+    borderColor: '#232834',
   },
   habitCardCompleted: {
-    backgroundColor: '#0a2e1f',
-    borderColor: '#00ff88',
+    backgroundColor: 'rgba(34, 211, 238, 0.08)',
+    borderColor: '#22D3EE',
   },
   habitLeft: {
     flexDirection: 'row',
@@ -323,17 +320,17 @@ const styles = StyleSheet.create({
     height: 28,
     borderRadius: 14,
     borderWidth: 2,
-    borderColor: '#666',
+    borderColor: '#232834',
     marginRight: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
   checkboxCompleted: {
-    backgroundColor: '#00ff88',
-    borderColor: '#00ff88',
+    backgroundColor: '#22D3EE',
+    borderColor: '#22D3EE',
   },
   checkmark: {
-    color: '#000',
+    color: '#0F1115',
     fontSize: 18,
     fontWeight: 'bold',
   },
@@ -352,19 +349,19 @@ const styles = StyleSheet.create({
   habitName: {
     fontSize: 17,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#F3F4F6',
   },
   habitNameCompleted: {
-    color: '#00ff88',
+    color: '#22D3EE',
   },
   habitDescription: {
     fontSize: 14,
-    color: '#888',
+    color: '#6B7280',
     marginBottom: 4,
   },
   habitTarget: {
     fontSize: 13,
-    color: '#00ff88',
+    color: '#22D3EE',
     fontWeight: '600',
   },
   habitRight: {
@@ -376,19 +373,19 @@ const styles = StyleSheet.create({
   streakNumber: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#F3F4F6',
   },
   streakLabel: {
     fontSize: 11,
-    color: '#888',
+    color: '#6B7280',
   },
   habitOverviewCard: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#1B202B',
     borderRadius: 12,
     padding: 16,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: '#232834',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -404,12 +401,12 @@ const styles = StyleSheet.create({
   habitOverviewName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#fff',
+    color: '#F3F4F6',
     marginBottom: 2,
   },
   habitFrequency: {
     fontSize: 13,
-    color: '#888',
+    color: '#6B7280',
   },
   habitOverviewRight: {
     alignItems: 'flex-end',
@@ -417,11 +414,11 @@ const styles = StyleSheet.create({
   habitCompletionRate: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#00ff88',
+    color: '#22D3EE',
   },
   habitStreak: {
     fontSize: 13,
-    color: '#888',
+    color: '#6B7280',
     marginTop: 2,
   },
   emptyState: {
@@ -435,12 +432,12 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#F3F4F6',
     marginBottom: 8,
   },
   emptyText: {
     fontSize: 16,
-    color: '#888',
+    color: '#6B7280',
     textAlign: 'center',
     paddingHorizontal: 40,
     lineHeight: 24,
@@ -450,28 +447,28 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   primaryButton: {
-    backgroundColor: '#00ff88',
+    backgroundColor: '#22D3EE',
     padding: 18,
     borderRadius: 14,
     alignItems: 'center',
-    shadowColor: '#00ff88',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 10,
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 2,
   },
   primaryButtonText: {
-    color: '#000',
+    color: '#0F1115',
     fontSize: 17,
     fontWeight: 'bold',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    backgroundColor: 'rgba(15, 17, 21, 0.95)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#111',
+    backgroundColor: '#151922',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
@@ -486,18 +483,18 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#F3F4F6',
   },
   closeButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#333',
+    backgroundColor: '#232834',
     justifyContent: 'center',
     alignItems: 'center',
   },
   closeButtonText: {
-    color: '#fff',
+    color: '#F3F4F6',
     fontSize: 20,
     fontWeight: 'bold',
   },
@@ -505,14 +502,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   templateCard: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#1B202B',
     borderRadius: 14,
     padding: 16,
     marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: '#232834',
   },
   templateIcon: {
     fontSize: 32,

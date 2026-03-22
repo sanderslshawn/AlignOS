@@ -26,6 +26,7 @@ describe('Self-Adjusting Engine', () => {
     dietFoundation: 'BALANCED',
     fitnessGoal: 'MAINTENANCE',
     allowComfortWindow: true,
+    useLearnedRhythm: true,
     comfortWindowPreferredTime: '15:00',    useWeekendSchedule: false,  };
 
   const mockDayState: DayState = {
@@ -104,6 +105,7 @@ describe('Comfort Meal Protection', () => {
     dietFoundation: 'BALANCED',
     fitnessGoal: 'MAINTENANCE',
     allowComfortWindow: true,
+    useLearnedRhythm: true,
     comfortWindowPreferredTime: '15:00',
     useWeekendSchedule: false,
   };
@@ -250,7 +252,9 @@ describe('Event Mutations', () => {
       mealSequencePreference: 'protein-first',
       dietFoundation: 'BALANCED',
       fitnessGoal: 'MAINTENANCE',
-      allowComfortWindow: false,      useWeekendSchedule: false,    };
+      allowComfortWindow: false,
+      useLearnedRhythm: true,
+      useWeekendSchedule: false,    };
 
     const originalMealTime = new Date('2026-02-24T12:00:00');
     const meal: MealEvent = {

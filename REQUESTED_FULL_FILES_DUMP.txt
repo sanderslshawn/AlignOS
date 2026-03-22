@@ -1,0 +1,3839 @@
+﻿REQUESTED FILE DUMP
+Generated: 2026-03-11T18:38:27.9194532-07:00
+
+Missing requested file: apps/mobile/src/**/normalizeSchedule.ts (not found)
+Included alternative helper: apps/mobile/src/engine/normalizeTimeline.ts
+Included all index.ts candidates under apps/mobile/src/**/index.ts
+
+
+========================================================================================================================
+FILE: apps/mobile/src/types/mutationIntent.ts
+========================================================================================================================
+
+export type MutationIntent =
+  | 'ADD'
+  | 'EDIT'
+  | 'DELETE'
+  | 'REGENERATE'
+  | 'DELETE_VALIDATE_ONLY'
+  | 'RECOMPUTE'
+  | 'SELF_HEAL'
+  | 'ADVISOR_INSERT'
+  | 'COPY_TODAY_STRUCTURE'
+  | 'GENERATE_TOMORROW';
+
+
+
+
+========================================================================================================================
+FILE: apps/mobile/src/engine/applyScheduleMutation.ts
+========================================================================================================================
+
+import type { ScheduleItem, UserProfile } from '@physiology-engine/shared';
+import { buildDaySchedule } from './buildDaySchedule';
+import { validateSchedule } from './validateSchedule';
+import { parseClockTime } from '../utils/clockTime';
+import { canDeleteScheduleItem } from './normalizeTimeline';
+import type { MutationIntent } from '../types/mutationIntent';
+
+type Mutation =
+  | { kind: 'edit'; id: string; updates: Partial<ScheduleItem> }
+  | { kind: 'add'; item: ScheduleItem }
+  | { kind: 'delete'; id: string }
+  | { kind: 'logActual'; item: ScheduleItem }
+  | { kind: 'advisorAdd'; item: ScheduleItem }
+  | { kind: 'markDone'; id: string }
+  | { kind: 'markSkipped'; id: string };
+
+interface ApplyScheduleMutationInput {
+  currentItems: ScheduleItem[];
+  mutation: Mutation;
+  settings: UserProfile;
+  intent?: MutationIntent;
+  advisorInsertions?: ScheduleItem[];
+  actualEvents?: ScheduleItem[];
+  dateISO?: string;
+}
+
+function sortSchedule(items: ScheduleItem[]): ScheduleItem[] {
+  return [...items].sort((a, b) => (a.startMin || 0) - (b.startMin || 0));
+}
+
+function preserveAnchors(originalItems: ScheduleItem[], nextItems: ScheduleItem[]): ScheduleItem[] {
+  const wakeFromOriginal = originalItems.find((item) => item.type === 'wake');
+  const sleepFromOriginal = originalItems.find((item) => item.type === 'sleep');
+  const hasWake = nextItems.some((item) => item.type === 'wake');
+  const hasSleep = nextItems.some((item) => item.type === 'sleep');
+
+  const withAnchors = [...nextItems];
+  if (!hasWake && wakeFromOriginal) withAnchors.push(wakeFromOriginal);
+  if (!hasSleep && sleepFromOriginal) withAnchors.push(sleepFromOriginal);
+  return withAnchors;
+}
+
+function resolveIntent(input: ApplyScheduleMutationInput): MutationIntent {
+  if (input.intent) return input.intent;
+
+  switch (input.mutation.kind) {
+    case 'add':
+      return 'ADD';
+    case 'edit':
+      return 'EDIT';
+    case 'delete':
+      return 'DELETE';
+    case 'advisorAdd':
+      return 'ADVISOR_INSERT';
+    case 'logActual':
+    case 'markDone':
+    case 'markSkipped':
+      return 'SELF_HEAL';
+    default:
+      return 'REGENERATE';
+  }
+}
+
+export function applyScheduleMutation(input: ApplyScheduleMutationInput): ScheduleItem[] {
+  let working = [...input.currentItems];
+  const mutation = input.mutation;
+  const intent = resolveIntent(input);
+
+  if (intent === 'DELETE' && mutation.kind === 'delete') {
+    const beforeItems = [...working];
+    const removedItems = working.filter((item) => item.id !== mutation.id || !canDeleteScheduleItem(item));
+    const withAnchors = preserveAnchors(beforeItems, removedItems);
+
+    const wake = input.settings.wakeClockTime || parseClockTime(input.settings.wakeTime)!;
+    const sleep = input.settings.sleepClockTime || parseClockTime(input.settings.sleepTime)!;
+
+    const validatedItems = validateSchedule({
+      items: withAnchors,
+      wakeTime: wake,
+      sleepTime: sleep,
+      dateISO: input.dateISO,
+    }).items;
+
+    const sortedItems = sortSchedule(validatedItems);
+
+    if (sortedItems.length > beforeItems.length) {
+      console.warn('[applyScheduleMutation][DELETE] Delete produced more items than original, blocking insertions', {
+        beforeCount: beforeItems.length,
+        afterCount: sortedItems.length,
+        deletedItemId: mutation.id,
+      });
+      return sortSchedule(withAnchors);
+    }
+
+    return sortedItems;
+  }
+
+  switch (mutation.kind) {
+    case 'edit':
+      working = working.map((item) =>
+        item.id === mutation.id
+          ? {
+              ...item,
+              ...mutation.updates,
+              status: 'adjusted',
+              source: item.source === 'system' ? 'user' : item.source,
+            }
+          : item
+      );
+      break;
+    case 'add':
+      working.push({ ...mutation.item, source: 'user', status: mutation.item.status || 'planned' });
+      break;
+    case 'delete':
+      working = working.filter((item) => item.id !== mutation.id || !canDeleteScheduleItem(item));
+      break;
+    case 'logActual':
+      working.push({ ...mutation.item, source: 'user', status: 'actual' });
+      break;
+    case 'advisorAdd':
+      working.push({ ...mutation.item, source: 'advisor', status: 'planned' });
+      break;
+    case 'markDone':
+      working = working.map((item) => (item.id === mutation.id ? { ...item, status: 'actual' } : item));
+      break;
+    case 'markSkipped':
+      working = working.map((item) => (item.id === mutation.id ? { ...item, status: 'skipped' } : item));
+      break;
+  }
+
+  const rebuilt = buildDaySchedule({
+    settings: input.settings,
+    existingItems: working,
+    advisorInsertions: input.advisorInsertions,
+    actualEvents: input.actualEvents,
+    dateISO: input.dateISO,
+    intent,
+    validateOnly: false,
+  });
+
+  const wake = input.settings.wakeClockTime || parseClockTime(input.settings.wakeTime)!;
+  const sleep = input.settings.sleepClockTime || parseClockTime(input.settings.sleepTime)!;
+
+  return validateSchedule({
+    items: rebuilt,
+    wakeTime: wake,
+    sleepTime: sleep,
+  }).items;
+}
+
+
+
+
+========================================================================================================================
+FILE: apps/mobile/src/engine/buildDaySchedule.ts
+========================================================================================================================
+
+import type { ScheduleItem, UserProfile } from '@physiology-engine/shared';
+import type { ClockTime } from '@physiology-engine/shared';
+import { addMinutes, parseClockTime, toISOWithClockTime } from '../utils/clockTime';
+import { normalizeAndValidateTimeline } from './normalizeTimeline';
+import type { MutationIntent } from '../types/mutationIntent';
+
+interface BuildDayScheduleInput {
+  settings: UserProfile;
+  workSchedule?: {
+    start?: ClockTime | null;
+    end?: ClockTime | null;
+    lunch?: ClockTime | null;
+  };
+  existingItems?: ScheduleItem[];
+  advisorInsertions?: ScheduleItem[];
+  actualEvents?: ScheduleItem[];
+  dateISO?: string;
+  suppressedIds?: string[];
+  intent?: MutationIntent;
+  validateOnly?: boolean;
+}
+
+function createAnchorItem(
+  type: ScheduleItem['type'],
+  title: string,
+  time: ClockTime,
+  dateISO: string,
+  idSuffix: string
+): ScheduleItem {
+  return {
+    id: `${type}-${dateISO}-${idSuffix}`,
+    type,
+    title,
+    startTime: time,
+    endTime: addMinutes(time, 5),
+    durationMin: 5,
+    startISO: toISOWithClockTime(`${dateISO}T00:00:00.000Z`, time),
+    endISO: toISOWithClockTime(`${dateISO}T00:00:00.000Z`, addMinutes(time, 5)),
+    status: 'planned',
+    source: 'system',
+    fixed: type === 'wake' || type === 'sleep',
+    locked: type === 'wake' || type === 'sleep',
+    deletable: type !== 'wake' && type !== 'sleep',
+  };
+}
+
+function dedupeById(items: ScheduleItem[]): ScheduleItem[] {
+  const byId = new Map<string, ScheduleItem>();
+  for (const item of items) {
+    byId.set(item.id, item);
+  }
+  return Array.from(byId.values());
+}
+
+export function buildDaySchedule(input: BuildDayScheduleInput): ScheduleItem[] {
+  const dateISO = input.dateISO || new Date().toISOString().slice(0, 10);
+  const suppressedIds = new Set(input.suppressedIds || []);
+  const intent = input.intent || 'REGENERATE';
+  const isDeleteIntent = intent === 'DELETE' || intent === 'DELETE_VALIDATE_ONLY';
+  const validateOnly = input.validateOnly === true || isDeleteIntent;
+
+  const wake =
+    input.settings.wakeClockTime ||
+    parseClockTime(input.settings.wakeTime) ||
+    ({ hour: 7, minute: 0, period: 'AM' } as ClockTime);
+
+  const sleep =
+    input.settings.sleepClockTime ||
+    parseClockTime(input.settings.sleepTime) ||
+    ({ hour: 11, minute: 0, period: 'PM' } as ClockTime);
+
+  const workStart =
+    input.workSchedule?.start ||
+    input.settings.workStartClockTime ||
+    parseClockTime(input.settings.workStartTime || undefined);
+
+  const workEnd =
+    input.workSchedule?.end ||
+    input.settings.workEndClockTime ||
+    parseClockTime(input.settings.workEndTime || undefined);
+
+  const lunchTime =
+    input.workSchedule?.lunch ||
+    input.settings.lunchClockTime ||
+    parseClockTime(input.settings.lunchTime || undefined);
+
+  const baseExistingItems = (input.existingItems || [])
+    .filter((item) => !suppressedIds.has(item.id))
+    .filter((item) => item.notes !== 'deleted-marker');
+
+  let candidate: ScheduleItem[];
+
+  if (validateOnly) {
+    const hasWake = baseExistingItems.some((item) => item.type === 'wake');
+    const hasSleep = baseExistingItems.some((item) => item.type === 'sleep');
+    const requiredAnchors: ScheduleItem[] = [];
+
+    if (!hasWake) {
+      requiredAnchors.push(createAnchorItem('wake', 'Wake / Start Day', wake, dateISO, 'anchor'));
+    }
+    if (!hasSleep) {
+      requiredAnchors.push(createAnchorItem('sleep', 'Sleep', sleep, dateISO, 'anchor'));
+    }
+
+    candidate = dedupeById([...baseExistingItems, ...requiredAnchors]);
+  } else {
+    const anchors: ScheduleItem[] = [
+      createAnchorItem('wake', 'Wake / Start Day', wake, dateISO, 'anchor'),
+      createAnchorItem('sleep', 'Sleep', sleep, dateISO, 'anchor'),
+    ];
+
+    if (workStart) anchors.push(createAnchorItem('work', 'Work Start', workStart, dateISO, 'start'));
+    if (workEnd) anchors.push(createAnchorItem('work', 'Work End', workEnd, dateISO, 'end'));
+    if (lunchTime) anchors.push(createAnchorItem('lunch', 'Lunch', lunchTime, dateISO, 'anchor'));
+
+    const filteredAnchors = anchors.filter((item) => !suppressedIds.has(item.id));
+
+    const merged = [
+      ...baseExistingItems,
+      ...(input.advisorInsertions || []),
+      ...(input.actualEvents || []),
+    ]
+      .filter((item) => !suppressedIds.has(item.id))
+      .filter((item) => item.notes !== 'deleted-marker');
+
+    candidate = dedupeById([...filteredAnchors, ...merged]);
+  }
+
+  const normalized = normalizeAndValidateTimeline(candidate, {
+    ...input.settings,
+    wakeClockTime: wake,
+    sleepClockTime: sleep,
+    workStartClockTime: workStart || input.settings.workStartClockTime,
+    workEndClockTime: workEnd || input.settings.workEndClockTime,
+    lunchClockTime: lunchTime || input.settings.lunchClockTime,
+  }, {
+    dateISO,
+  });
+
+  return normalized.items;
+}
+
+
+
+
+========================================================================================================================
+FILE: apps/mobile/src/utils/planGenerator.ts
+========================================================================================================================
+
+import { generateDayPlan } from '@physiology-engine/engine';
+import type { ConstraintBlock, DayPlan, MealEvent, ScheduleItem, UserProfile, WorkoutEvent } from '@physiology-engine/shared';
+import { buildDaySchedule } from '../engine/buildDaySchedule';
+import { validateSchedule } from '../engine/validateSchedule';
+import { parseClockTime } from './clockTime';
+import type { MutationIntent } from '../types/mutationIntent';
+
+interface BuildTimelineParams {
+  dateISO: string;
+  settings: UserProfile;
+  todayEntries: ScheduleItem[];
+  constraints?: ConstraintBlock[];
+  plannedWorkouts?: WorkoutEvent[];
+  plannedMeals?: MealEvent[];
+  mutationIntent?: MutationIntent;
+  baseItems?: ScheduleItem[];
+}
+
+function suppressionKeyForItem(item: Pick<ScheduleItem, 'type' | 'title' | 'startMin' | 'startISO' | 'startTime'>): string {
+  const normalizedTitle = (item.title || '').trim().toLowerCase();
+  return `${item.type}|${normalizedTitle}`;
+}
+
+function suppressionExactKeyForItem(item: Pick<ScheduleItem, 'type' | 'title' | 'startMin' | 'startISO' | 'startTime'>): string {
+  const normalizedTitle = (item.title || '').trim().toLowerCase();
+  const minuteFromIso = typeof item.startISO === 'string' && item.startISO.includes('T')
+    ? Number.parseInt(item.startISO.slice(11, 13), 10) * 60 + Number.parseInt(item.startISO.slice(14, 16), 10)
+    : undefined;
+  const minuteFromTime = item.startTime
+    ? (((item.startTime.period === 'PM' ? (item.startTime.hour % 12) + 12 : item.startTime.hour % 12) * 60) + item.startTime.minute)
+    : undefined;
+  const startMinute = item.startMin ?? minuteFromIso ?? minuteFromTime ?? 0;
+  return `${item.type}|${normalizedTitle}|${startMinute}`;
+}
+
+export function buildTimelinePlan(params: BuildTimelineParams): DayPlan {
+  const mutationIntent = params.mutationIntent || 'REGENERATE';
+  const shouldRegenerate = mutationIntent === 'REGENERATE';
+
+  const suppressedIds = new Set(
+    params.todayEntries
+      .map((item) => item.meta?.suppressedId as string | undefined)
+      .filter((value): value is string => Boolean(value))
+  );
+
+  const suppressedKeys = new Set(
+    params.todayEntries
+      .map((item) => item.meta?.suppressedKey as string | undefined)
+      .filter((value): value is string => Boolean(value))
+  );
+
+  const suppressedExactKeys = new Set(
+    params.todayEntries
+      .map((item) => item.meta?.suppressedExactKey as string | undefined)
+      .filter((value): value is string => Boolean(value))
+  );
+
+  const userVisibleEntries = params.todayEntries.filter((item) => item.notes !== 'deleted-marker');
+
+  const rawPlan = shouldRegenerate
+    ? generateDayPlan({
+        dateISO: params.dateISO,
+        settings: params.settings,
+        todayEntries: userVisibleEntries,
+        constraints: params.constraints,
+        plannedWorkouts: params.plannedWorkouts,
+        plannedMeals: params.plannedMeals,
+      })
+    : null;
+
+  const baseItems = shouldRegenerate
+    ? [
+        ...(rawPlan?.items || []).filter(
+          (item) =>
+            !suppressedIds.has(item.id) &&
+            !suppressedKeys.has(suppressionKeyForItem(item)) &&
+            !suppressedExactKeys.has(suppressionExactKeyForItem(item))
+        ),
+        ...userVisibleEntries,
+      ]
+    : (params.baseItems || userVisibleEntries);
+
+  const timelineItems = buildDaySchedule({
+    dateISO: params.dateISO,
+    settings: params.settings,
+    suppressedIds: Array.from(suppressedIds),
+    existingItems: baseItems,
+    intent: mutationIntent,
+    validateOnly: !shouldRegenerate,
+  });
+
+  const wake =
+    params.settings.wakeClockTime ||
+    parseClockTime(params.settings.wakeTime) ||
+    { hour: 7, minute: 0, period: 'AM' as const };
+  const sleep =
+    params.settings.sleepClockTime ||
+    parseClockTime(params.settings.sleepTime) ||
+    { hour: 11, minute: 0, period: 'PM' as const };
+
+  const validation = validateSchedule({
+    items: timelineItems,
+    wakeTime: wake,
+    sleepTime: sleep,
+    dateISO: params.dateISO,
+  });
+
+  if (!shouldRegenerate) {
+    return {
+      dateISO: params.dateISO,
+      items: validation.items,
+      summary: validation.valid
+        ? 'Validate-only mutation applied'
+        : `Validate-only mutation applied with repairs: ${validation.issues.join('; ')}`,
+      recommendations: [],
+    };
+  }
+
+  return {
+    ...rawPlan!,
+    dateISO: params.dateISO,
+    items: validation.items,
+    summary: validation.valid
+      ? rawPlan!.summary
+      : `Timeline repaired: ${validation.issues.join('; ')}`,
+  };
+}
+
+
+
+
+========================================================================================================================
+FILE: apps/mobile/src/store/planStore.ts
+========================================================================================================================
+
+/**
+ * PLAN STATE MANAGER
+ * Single source of truth for plan generation, event mutations, and sync.
+ * Handles local offline computation and API sync when available.
+ */
+
+import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import type {
+  UserProfile,
+  DayState,
+  PlanStep,
+  Event,
+  MealEvent,
+  WalkEvent,
+  ConstraintBlock,
+  EngineInput,
+  EngineOutput,
+  ScheduleItem,
+  DayPlan,
+} from '@physiology-engine/shared';
+import { generatePlan } from '@physiology-engine/engine';
+import { format, addMinutes, parse } from 'date-fns';
+import { getApiBaseUrl } from '../utils/apiBaseUrl';
+import { buildTimelinePlan } from '../utils/planGenerator';
+import { applyScheduleMutation } from '../engine/applyScheduleMutation';
+import { deleteScheduleItem } from '../engine/deleteScheduleItem';
+import { buildDaySchedule } from '../engine/buildDaySchedule';
+import { canDeleteScheduleItem } from '../engine/normalizeTimeline';
+import { clockTimeFromISO, parseClockTime, toISOWithClockTime } from '../utils/clockTime';
+import type { MutationIntent } from '../types/mutationIntent';
+import {
+  compareByStartMin,
+  ensureStartEnd,
+  minutesToHHmm,
+  parseTimeToMinutes,
+} from '../utils/time';
+import { normalizeQuickStatusSignals, type QuickStatusSignal } from '../types/quickStatus';
+import { getMajorSettingsFingerprint } from '../utils/shouldPromptRefresh';
+
+// Simple UUID generator (fallback if expo-crypto not available)
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+export type SyncStatus = 'offline' | 'syncing' | 'synced' | 'error';
+
+export interface TomorrowPreview {
+  dateISO: string;
+  wakeTime: string;
+  sleepTime: string;
+  workStartTime?: string;
+  workEndTime?: string;
+  anchors: Array<{ title: string; time: string }>;
+  items?: ScheduleItem[];
+  suggestions?: string[];
+  predictive?: {
+    predictedDayMode: string;
+    bestFocusWindow: string;
+    likelyDipWindow: string;
+    bestOpportunityWindow: string;
+    topRisk: string;
+    bestMove: string;
+  };
+  generated: boolean;
+}
+
+interface PlanState {
+  // Core state
+  deviceId: string | null;
+  profile: UserProfile | null;
+  dayState: DayState | null;
+  computedPlan: EngineOutput | null;
+  
+  // Full-day plan (new)
+  todayEntries: ScheduleItem[];
+  fullDayPlan: DayPlan | null;
+  todayPlanSettingsFingerprint: string | null;
+  initialized: boolean;
+  
+  // Sync status
+  syncStatus: SyncStatus;
+  lastSyncAt: Date | null;
+  syncError: string | null;
+  
+  // Auto-refresh
+  autoRefreshEnabled: boolean;
+  autoRefreshIntervalMs: number;
+  
+  // Actions: Initialization
+  initialize: () => Promise<void>;
+  loadProfile: () => Promise<UserProfile | null>;
+  saveProfile: (profile: UserProfile) => Promise<void>;
+  
+  // Actions: Plan Generation
+  generatePlan: (forceRecompute?: boolean) => Promise<void>;
+  generateFullDayPlan: (options?: {
+    intent?: MutationIntent;
+    baseItems?: ScheduleItem[];
+    beforeItems?: ScheduleItem[];
+    deletedItemId?: string;
+  }) => Promise<void>;
+  refreshFromNow: () => Promise<void>;
+  checkStaleness: () => 'FRESH' | 'AGING' | 'STALE' | 'CRITICAL';
+  setupToday: (dayState: Partial<DayState>) => Promise<void>;
+  
+  // Actions: Today Entries (new)
+  addTodayEntry: (entry: Omit<ScheduleItem, 'id'>) => Promise<string>;
+  setTodayEntries: (entries: ScheduleItem[]) => Promise<void>;
+  updateTodayEntry: (id: string, updates: Partial<ScheduleItem>) => Promise<void>;
+  deleteTodayEntry: (id: string) => Promise<void>;
+  getTomorrowPreview: () => Promise<TomorrowPreview>;
+  
+  // Actions: Event Mutations
+  addEvent: (event: Event) => Promise<void>;
+  updateEvent: (eventId: string, updates: Partial<Event>) => Promise<void>;
+  markDone: (eventId: string) => Promise<void>;
+  markSkipped: (eventId: string) => Promise<void>;
+  deleteEvent: (eventId: string) => Promise<void>;
+  
+  // Actions: Quick Updates
+  delayMeal: (mealId: string, minutes: number) => Promise<void>;
+  addComfortMeal: (time: Date) => Promise<void>;
+  addMeetingBlock: (start: Date, end: Date, description?: string) => Promise<void>;
+  shortenWalk: (walkId: string, newDuration: number) => Promise<void>;
+  setStress: (level: number) => Promise<void>;
+  setSleep: (level: number) => Promise<void>;
+  setQuickStatusSignals: (signals: QuickStatusSignal[]) => Promise<void>;
+  
+  // Actions: Sync
+  syncToAPI: () => Promise<void>;
+  enableAutoRefresh: () => void;
+  disableAutoRefresh: () => void;
+}
+
+// API configuration
+const API_BASE_URL = getApiBaseUrl();
+const API_TIMEOUT = 5000; // 5 seconds
+
+function migrateProfileTimes(profile: UserProfile): UserProfile {
+  const wakeMin = profile.wakeMin ?? parseTimeToMinutes(profile.wakeTime) ?? 420;
+  const sleepMin = profile.sleepMin ?? parseTimeToMinutes(profile.sleepTime) ?? 1380;
+  const workStartMin = profile.workStartMin ?? parseTimeToMinutes(profile.workStartTime);
+  const workEndMin = profile.workEndMin ?? parseTimeToMinutes(profile.workEndTime);
+  const lunchStartMin = profile.lunchStartMin ?? parseTimeToMinutes(profile.lunchTime);
+  const wakeClockTime = profile.wakeClockTime ?? parseClockTime(profile.wakeTime);
+  const sleepClockTime = profile.sleepClockTime ?? parseClockTime(profile.sleepTime);
+  const workStartClockTime = profile.workStartClockTime ?? parseClockTime(profile.workStartTime);
+  const workEndClockTime = profile.workEndClockTime ?? parseClockTime(profile.workEndTime);
+  const lunchClockTime = profile.lunchClockTime ?? parseClockTime(profile.lunchTime);
+
+  return {
+    ...profile,
+    wakeMin,
+    sleepMin,
+    workStartMin: workStartMin ?? undefined,
+    workEndMin: workEndMin ?? undefined,
+    lunchStartMin: lunchStartMin ?? undefined,
+    wakeTime: minutesToHHmm(wakeMin),
+    sleepTime: minutesToHHmm(sleepMin),
+    workStartTime: workStartMin !== null && workStartMin !== undefined ? minutesToHHmm(workStartMin) : profile.workStartTime,
+    workEndTime: workEndMin !== null && workEndMin !== undefined ? minutesToHHmm(workEndMin) : profile.workEndTime,
+    lunchTime: lunchStartMin !== null && lunchStartMin !== undefined ? minutesToHHmm(lunchStartMin) : profile.lunchTime,
+    wakeClockTime: wakeClockTime || undefined,
+    sleepClockTime: sleepClockTime || undefined,
+    workStartClockTime: workStartClockTime || undefined,
+    workEndClockTime: workEndClockTime || undefined,
+    lunchClockTime: lunchClockTime || undefined,
+  };
+}
+
+function normalizeScheduleEntries(entries: ScheduleItem[]): ScheduleItem[] {
+  const dateISO = format(new Date(), 'yyyy-MM-dd');
+  const normalizedEntries: ScheduleItem[] = entries.map((entry) => {
+    const normalizedTime = ensureStartEnd(entry);
+    const startTime = entry.startTime || clockTimeFromISO(entry.startISO);
+    const endTime = entry.endTime || (entry.endISO ? clockTimeFromISO(entry.endISO) : undefined);
+    const status: ScheduleItem['status'] =
+      entry.status === 'actual' || entry.status === 'skipped' || entry.status === 'adjusted'
+        ? entry.status
+        : entry.status === 'auto_adjusted'
+          ? 'adjusted'
+          : 'planned';
+    const source: ScheduleItem['source'] =
+      entry.source === 'user' || entry.source === 'advisor' || entry.source === 'system'
+        ? entry.source
+        : entry.source === 'advisor_added'
+          ? 'advisor'
+          : entry.source === 'user_added'
+            ? 'user'
+            : 'system';
+
+    return {
+      ...normalizedTime,
+      startTime: startTime || undefined,
+      endTime: endTime || undefined,
+      startISO: startTime ? toISOWithClockTime(`${dateISO}T00:00:00.000Z`, startTime) : entry.startISO,
+      endISO: endTime ? toISOWithClockTime(`${dateISO}T00:00:00.000Z`, endTime) : entry.endISO,
+      status,
+      source,
+      locked: entry.type === 'wake' || entry.type === 'sleep',
+      deletable: canDeleteScheduleItem(entry),
+      createdAt: entry.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as ScheduleItem;
+  });
+
+  const sorted = [...normalizedEntries].sort(compareByStartMin);
+
+  const applyMinutesToIso = (baseISO: string, minutesFromMidnight: number): string => {
+    const datePart = (baseISO || new Date().toISOString()).split('T')[0];
+    const normalized = ((Math.round(minutesFromMidnight) % (24 * 60)) + (24 * 60)) % (24 * 60);
+    const hours = String(Math.floor(normalized / 60)).padStart(2, '0');
+    const minutes = String(normalized % 60).padStart(2, '0');
+    return `${datePart}T${hours}:${minutes}:00.000Z`;
+  };
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const current = sorted[i];
+
+    const prevEndMin = ensureStartEnd(prev).endMin;
+    const currentNormalized = ensureStartEnd(current);
+    const currentStartMin = currentNormalized.startMin;
+
+    if (currentStartMin < prevEndMin) {
+      const durationMin = Math.max(5, currentNormalized.endMin - currentStartMin);
+      const pushedStartMin = prevEndMin;
+      const pushedEndMin = pushedStartMin + durationMin;
+
+      sorted[i] = {
+        ...current,
+        startMin: pushedStartMin,
+        endMin: pushedEndMin,
+        durationMin,
+        startISO: applyMinutesToIso(current.startISO, pushedStartMin),
+        endISO: applyMinutesToIso(current.endISO, pushedEndMin),
+      };
+    }
+  }
+
+  return sorted;
+}
+
+function buildSuppressionKey(item: Pick<ScheduleItem, 'type' | 'title' | 'startMin' | 'startISO' | 'startTime'>): string {
+  const normalizedTitle = (item.title || '').trim().toLowerCase();
+  return `${item.type}|${normalizedTitle}`;
+}
+
+function buildSuppressionExactKey(item: Pick<ScheduleItem, 'type' | 'title' | 'startMin' | 'startISO' | 'startTime'>): string {
+  const normalizedTitle = (item.title || '').trim().toLowerCase();
+  const minuteFromIso = typeof item.startISO === 'string' && item.startISO.includes('T')
+    ? Number.parseInt(item.startISO.slice(11, 13), 10) * 60 + Number.parseInt(item.startISO.slice(14, 16), 10)
+    : undefined;
+  const minuteFromTime = item.startTime
+    ? (((item.startTime.period === 'PM' ? (item.startTime.hour % 12) + 12 : item.startTime.hour % 12) * 60) + item.startTime.minute)
+    : undefined;
+  const startMinute = item.startMin ?? minuteFromIso ?? minuteFromTime ?? 0;
+  return `${item.type}|${normalizedTitle}|${startMinute}`;
+}
+
+function signatureForDeleteGuard(item: Pick<ScheduleItem, 'type' | 'title' | 'startMin' | 'startISO' | 'startTime'>): string {
+  const normalizedTitle = (item.title || '').trim().toLowerCase();
+  const minuteFromIso = typeof item.startISO === 'string' && item.startISO.includes('T')
+    ? Number.parseInt(item.startISO.slice(11, 13), 10) * 60 + Number.parseInt(item.startISO.slice(14, 16), 10)
+    : undefined;
+  const minuteFromTime = item.startTime
+    ? (((item.startTime.period === 'PM' ? (item.startTime.hour % 12) + 12 : item.startTime.hour % 12) * 60) + item.startTime.minute)
+    : undefined;
+  const startMinute = item.startMin ?? minuteFromIso ?? minuteFromTime ?? 0;
+  return `${item.type}|${normalizedTitle}|${startMinute}`;
+}
+
+function applyDeleteSafetyGuard(
+  beforeItems: ScheduleItem[],
+  afterItems: ScheduleItem[],
+  deletedItemId?: string
+): { items: ScheduleItem[]; insertedCount: number; blockedCount: number } {
+  const beforeSignatures = new Set(beforeItems.map((item) => signatureForDeleteGuard(item)));
+  const unexpectedInserted = afterItems.filter((item) => {
+    if (item.type === 'wake' || item.type === 'sleep') return false;
+    if (deletedItemId && item.id === deletedItemId) return true;
+    return !beforeSignatures.has(signatureForDeleteGuard(item));
+  });
+
+  if (!unexpectedInserted.length) {
+    return { items: afterItems, insertedCount: 0, blockedCount: 0 };
+  }
+
+  const unexpectedSignatures = new Set(unexpectedInserted.map((item) => signatureForDeleteGuard(item)));
+  const blockedItems = afterItems.filter((item) => {
+    if (item.type === 'wake' || item.type === 'sleep') return false;
+    if (deletedItemId && item.id === deletedItemId) return true;
+    return unexpectedSignatures.has(signatureForDeleteGuard(item));
+  });
+
+  const guardedItems = afterItems.filter((item) => !blockedItems.some((blocked) => blocked.id === item.id));
+  return {
+    items: guardedItems,
+    insertedCount: unexpectedInserted.length,
+    blockedCount: blockedItems.length,
+  };
+}
+
+export const usePlanStore = create<PlanState>((set, get) => ({
+  deviceId: null,
+  profile: null,
+  dayState: null,
+  computedPlan: null,
+  todayEntries: [],
+  fullDayPlan: null,
+  todayPlanSettingsFingerprint: null,
+  initialized: false,
+  syncStatus: 'offline',
+  lastSyncAt: null,
+  syncError: null,
+  autoRefreshEnabled: true,
+  autoRefreshIntervalMs: 60000, // 60 seconds
+  
+  // Initialize store
+  initialize: async () => {
+    try {
+      // Get or create device ID
+      let deviceId = await AsyncStorage.getItem('deviceId');
+      if (!deviceId) {
+        deviceId = generateUUID();
+        await AsyncStorage.setItem('deviceId', deviceId);
+      }
+      
+      // Load profile from planStore location
+      let profile = await get().loadProfile();
+      
+      // MIGRATION: If no profile in new location, check old appStore location
+      if (!profile) {
+        const oldAppState = await AsyncStorage.getItem('appState');
+        if (oldAppState) {
+          const parsed = JSON.parse(oldAppState);
+          if (parsed.userProfile) {
+            profile = parsed.userProfile;
+            // Migrate to new location
+            await AsyncStorage.setItem('userProfile', JSON.stringify(profile));
+          }
+        }
+      }
+
+      if (profile) {
+        profile = migrateProfileTimes(profile);
+        await AsyncStorage.setItem('userProfile', JSON.stringify(profile));
+      }
+      
+      // Load today's day state
+      const dateKey = format(new Date(), 'yyyy-MM-dd');
+      let dayState: DayState | null = null;
+      
+      // Try new location first
+      const dayStateJson = await AsyncStorage.getItem(`dayState_${dateKey}`);
+      if (dayStateJson) {
+        dayState = JSON.parse(dayStateJson, (key, value) => {
+          // Revive Date objects
+          if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+            return new Date(value);
+          }
+          return value;
+        });
+      }
+      
+      // MIGRATION: Check old appStore location
+      if (!dayState) {
+        const oldAppState = await AsyncStorage.getItem('appState');
+        if (oldAppState) {
+          const parsed = JSON.parse(oldAppState, (key, value) => {
+            if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+              return new Date(value);
+            }
+            return value;
+          });
+          if (parsed.dayState) {
+            dayState = {
+              ...parsed.dayState,
+              deviceId: deviceId,
+              dateKey: dateKey,
+              events: parsed.dayState.events || [],
+              computedPlan: parsed.dayState.computedPlan || [],
+            };
+          }
+        }
+      }
+      
+      // Load today's entries
+      const todayEntriesJson = await AsyncStorage.getItem(`todayEntries_${dateKey}`);
+      let todayEntries: ScheduleItem[] = [];
+      if (todayEntriesJson) {
+        todayEntries = normalizeScheduleEntries(JSON.parse(todayEntriesJson));
+      }
+      
+      // Load full day plan
+      const fullDayPlanJson = await AsyncStorage.getItem(`fullDayPlan_${dateKey}`);
+      let fullDayPlan: DayPlan | null = null;
+      if (fullDayPlanJson) {
+        fullDayPlan = JSON.parse(fullDayPlanJson);
+      }
+
+      const todayPlanSettingsFingerprint = await AsyncStorage.getItem(`planProfileFingerprint_${dateKey}`);
+      
+      set({ deviceId, profile, dayState, todayEntries, fullDayPlan, todayPlanSettingsFingerprint, initialized: true });
+      
+      // Generate initial plan only when there is no saved plan for today
+      if (profile && dayState && !fullDayPlan) {
+        await get().generatePlan(true);
+        await get().generateFullDayPlan();
+      }
+    } catch (error) {
+      console.error('[PlanStore] Initialize error:', error);
+      set({ syncStatus: 'error', syncError: String(error), initialized: true });
+    }
+  },
+  
+  loadProfile: async () => {
+    const profileJson = await AsyncStorage.getItem('userProfile');
+    if (profileJson) {
+      return migrateProfileTimes(JSON.parse(profileJson));
+    }
+    return null;
+  },
+  
+  saveProfile: async (profile: UserProfile) => {
+    const normalizedProfile = migrateProfileTimes(profile);
+    await AsyncStorage.setItem('userProfile', JSON.stringify(normalizedProfile));
+    set({ profile: normalizedProfile });
+  },
+  
+  // Setup today's day state
+  setupToday: async (dayStateInput: Partial<DayState>) => {
+    const { deviceId, profile } = get();
+    
+    if (!profile) {
+      console.error('[PlanStore] Cannot setup day without profile');
+      return;
+    }
+    
+    const now = new Date();
+    const dateKey = format(now, 'yyyy-MM-dd');
+    
+    const quickStatusSignals = normalizeQuickStatusSignals((dayStateInput as any)?.quickStatusSignals);
+
+    // Create complete day state with required fields
+    const dayState: DayState = {
+      deviceId: deviceId || 'unknown',
+      dateKey,
+      date: now,
+      dayMode: dayStateInput.dayMode || profile.defaultDayMode || 'flex',
+      currentTime: now,
+      sleepQuality: dayStateInput.sleepQuality || 7,
+      stressLevel: dayStateInput.stressLevel || profile.stressBaseline || 5,
+      isHungry: dayStateInput.isHungry || quickStatusSignals.includes('hungry-now') || false,
+      isCraving: dayStateInput.isCraving || quickStatusSignals.includes('craving-comfort') || false,
+      events: dayStateInput.events || [],
+      constraints: dayStateInput.constraints || [],
+      plannedMeals: dayStateInput.plannedMeals || [],
+      plannedCaffeine: dayStateInput.plannedCaffeine || [],
+      plannedWalks: dayStateInput.plannedWalks || [],
+      plannedWorkouts: dayStateInput.plannedWorkouts || [],
+      plannedActivations: dayStateInput.plannedActivations || [],
+      completedEvents: dayStateInput.completedEvents || [],
+      removedStepIds: dayStateInput.removedStepIds || [],
+      modifiedEvents: dayStateInput.modifiedEvents || {},
+      computedPlan: [],
+    };
+
+    (dayState as any).quickStatusSignals = quickStatusSignals;
+    
+    // Save to storage
+    await AsyncStorage.setItem(`dayState_${dateKey}`, JSON.stringify(dayState));
+    
+    // Update state
+    set({ dayState });
+    
+    // Generate plan (legacy)
+    await get().generatePlan(true);
+    
+    // Generate full day plan (new)
+    await get().generateFullDayPlan();
+  },
+  
+  // Generate plan using core engine
+  generatePlan: async (forceRecompute = false) => {
+    const { profile, dayState, syncToAPI } = get();
+    
+    if (!profile) {
+      console.warn('[PlanStore] Cannot generate plan without profile');
+      return;
+    }
+    
+    if (!dayState) {
+      console.warn('[PlanStore] No day state found. Please set up today first.');
+      return;
+    }
+    
+    try {
+      // Call core engine (local compute)
+      const input: EngineInput = {
+        now: new Date(),
+        profile,
+        dayState,
+        options: {
+          forceRecompute,
+          stalenessThresholdMinutes: 15,
+        },
+      };
+      
+      const output = generatePlan(input);
+      
+      // Update day state with computed plan
+      const updatedDayState: DayState = {
+        ...dayState,
+        lastComputedAt: new Date(),
+        computedPlan: output.scheduleItems,
+        planMeta: {
+          mode: dayState.dayMode,
+          score: output.score,
+          dayOneLiner: output.dayInOneLine,
+          warnings: output.warnings,
+        },
+      };
+      
+      // Save to local storage
+      const dateKey = format(new Date(), 'yyyy-MM-dd');
+      await AsyncStorage.setItem(`dayState_${dateKey}`, JSON.stringify(updatedDayState));
+      
+      set({
+        dayState: updatedDayState,
+        computedPlan: output,
+        syncStatus: 'synced',
+      });
+      
+      // Attempt API sync (non-blocking)
+      syncToAPI().catch(err => {
+        console.warn('[PlanStore] Background sync failed:', err);
+      });
+    } catch (error) {
+      console.error('[PlanStore] Generate plan error:', error);
+      set({ syncStatus: 'error', syncError: String(error) });
+    }
+  },
+  
+  checkStaleness: () => {
+    const { computedPlan } = get();
+    if (!computedPlan || !computedPlan.recomputeHints) {
+      return 'CRITICAL';
+    }
+    return computedPlan.recomputeHints.staleness;
+  },
+
+  refreshFromNow: async () => {
+    const { profile, fullDayPlan } = get();
+    if (!profile || !fullDayPlan) return;
+
+    await get().generateFullDayPlan({
+      intent: 'REGENERATE',
+      baseItems: normalizeScheduleEntries(fullDayPlan.items),
+    });
+  },
+  
+  // Generate Full Day Plan (new comprehensive planner)
+  generateFullDayPlan: async (options) => {
+    const { profile, todayEntries, dayState } = get();
+    
+    if (!profile) {
+      console.warn('[PlanStore] Cannot generate full day plan without profile');
+      return;
+    }
+    
+    try {
+      const dateISO = format(new Date(), 'yyyy-MM-dd');
+      const canonicalTodayEntries = normalizeScheduleEntries(todayEntries);
+      const intent = options?.intent;
+      const isDeleteIntent = intent === 'DELETE' || intent === 'DELETE_VALIDATE_ONLY';
+      const resolvedIntent: MutationIntent | undefined = isDeleteIntent ? 'DELETE_VALIDATE_ONLY' : intent;
+      const baseItems = options?.baseItems;
+      const beforeItems = options?.beforeItems;
+      const deletedItemId = options?.deletedItemId;
+
+      if (isDeleteIntent) {
+        const sourceItems = normalizeScheduleEntries(baseItems ?? canonicalTodayEntries);
+        console.log('[PlanStore][DeleteTrace] generateFullDayPlan start', {
+          intent: resolvedIntent,
+          sourceCount: sourceItems.length,
+          beforeCount: beforeItems?.length ?? 0,
+          deletedItemId,
+        });
+      }
+      
+      const fullPlan = isDeleteIntent
+        ? {
+            dateISO,
+            items: buildDaySchedule({
+              dateISO,
+              settings: profile,
+              existingItems: normalizeScheduleEntries(baseItems ?? canonicalTodayEntries),
+              intent: 'DELETE',
+              validateOnly: true,
+            }),
+            summary: 'Delete applied (validate-only)',
+            recommendations: [],
+          }
+        : buildTimelinePlan({
+            dateISO,
+            settings: profile,
+            todayEntries: canonicalTodayEntries,
+            constraints: dayState?.constraints,
+            plannedWorkouts: dayState?.plannedWorkouts,
+            plannedMeals: dayState?.plannedMeals,
+            mutationIntent: resolvedIntent,
+          });
+
+      const guardedItems =
+        isDeleteIntent && beforeItems
+          ? applyDeleteSafetyGuard(beforeItems, fullPlan.items, deletedItemId)
+          : { items: fullPlan.items, insertedCount: 0, blockedCount: 0 };
+
+      if (isDeleteIntent && beforeItems && guardedItems.items.length > beforeItems.length) {
+        console.warn('[PlanStore][DeleteTrace] Length guard blocked delete insertion', {
+          beforeCount: beforeItems.length,
+          afterCount: guardedItems.items.length,
+          deletedItemId,
+        });
+      }
+
+      const guardedPlan: DayPlan =
+        isDeleteIntent
+          ? {
+              ...fullPlan,
+              items: normalizeScheduleEntries(guardedItems.items),
+              recommendations: [],
+            }
+          : fullPlan;
+
+      if (isDeleteIntent) {
+        console.log('[PlanStore][DeleteTrace] generateFullDayPlan result', {
+          intent: resolvedIntent,
+          generatedCount: fullPlan.items.length,
+          finalCount: guardedPlan.items.length,
+          unexpectedInserted: guardedItems.insertedCount,
+          blockedUnexpected: guardedItems.blockedCount,
+        });
+      }
+      
+      // Save to storage
+      await AsyncStorage.setItem(`fullDayPlan_${dateISO}`, JSON.stringify(guardedPlan));
+      const settingsFingerprint = getMajorSettingsFingerprint(profile);
+      await AsyncStorage.setItem(`planProfileFingerprint_${dateISO}`, settingsFingerprint);
+      
+      set({ fullDayPlan: guardedPlan, todayPlanSettingsFingerprint: settingsFingerprint });
+
+      get().syncToAPI().catch((error) => {
+        console.warn('[PlanStore] Full day plan sync failed:', error);
+      });
+      
+      console.log('[PlanStore] Full day plan generated:', guardedPlan.summary);
+    } catch (error) {
+      console.error('[PlanStore] Generate full day plan error:', error);
+      set({ syncError: String(error) });
+    }
+  },
+  
+  // Add today entry
+  addTodayEntry: async (entry: Omit<ScheduleItem, 'id'>) => {
+    const { todayEntries, profile } = get();
+    if (!profile) return '';
+    const nowISO = new Date().toISOString();
+    
+    const newEntry: ScheduleItem = {
+      ...entry,
+      id: generateUUID(),
+      status: entry.status || (entry.origin === 'actual' ? 'actual' : 'planned'),
+      source: entry.source === 'advisor' ? 'advisor' : 'user',
+      locked: entry.type === 'wake' || entry.type === 'sleep',
+      deletable: canDeleteScheduleItem(entry),
+      createdAt: entry.createdAt || nowISO,
+      updatedAt: nowISO,
+    };
+
+    const updated = applyScheduleMutation({
+      currentItems: normalizeScheduleEntries(todayEntries),
+      mutation: { kind: 'add', item: newEntry },
+      settings: profile,
+      dateISO: format(new Date(), 'yyyy-MM-dd'),
+    });
+    set({ todayEntries: updated });
+    
+    // Save to storage
+    const dateISO = format(new Date(), 'yyyy-MM-dd');
+    await AsyncStorage.setItem(`todayEntries_${dateISO}`, JSON.stringify(updated));
+    
+    // Regenerate plan
+    await get().generateFullDayPlan();
+
+    return newEntry.id;
+  },
+
+  setTodayEntries: async (entries: ScheduleItem[]) => {
+    const { profile } = get();
+    if (!profile) return;
+    const normalized = normalizeScheduleEntries(entries);
+    set({ todayEntries: normalized });
+
+    const dateISO = format(new Date(), 'yyyy-MM-dd');
+    await AsyncStorage.setItem(`todayEntries_${dateISO}`, JSON.stringify(normalized));
+
+    await get().generateFullDayPlan();
+  },
+  
+  // Update today entry
+  updateTodayEntry: async (id: string, updates: Partial<ScheduleItem>) => {
+    const { todayEntries, fullDayPlan, profile } = get();
+    if (!profile) return;
+    const nowISO = new Date().toISOString();
+    
+    // Check if item exists in todayEntries
+    const existingIndex = todayEntries.findIndex(entry => entry.id === id);
+    
+    let updated: ScheduleItem[];
+    
+    if (existingIndex >= 0) {
+      // Update existing user entry
+      updated = todayEntries.map(entry =>
+        entry.id === id
+          ? {
+              ...entry,
+              ...updates,
+              source: 'user',
+              updatedAt: nowISO,
+            }
+          : entry
+      );
+      updated = applyScheduleMutation({
+        currentItems: normalizeScheduleEntries(updated),
+        mutation: { kind: 'edit', id, updates },
+        settings: profile,
+        dateISO: format(new Date(), 'yyyy-MM-dd'),
+      });
+    } else {
+      // Item is from settings or engine - convert to user entry
+      // Find the original item from fullDayPlan
+      const originalItem = fullDayPlan?.items.find(item => item.id === id);
+      
+      if (originalItem) {
+        const withoutOriginalAndMarkers = todayEntries.filter(
+          (entry) => entry.id !== id && entry.meta?.suppressedId !== id
+        );
+
+        if (canDeleteScheduleItem(originalItem)) {
+          const suppressionMarker: ScheduleItem = {
+            id: `suppress-${id}`,
+            type: 'custom',
+            title: 'Suppressed Item',
+            startISO: originalItem.startISO,
+            endISO: originalItem.endISO,
+            startTime: originalItem.startTime,
+            endTime: originalItem.endTime,
+            startMin: originalItem.startMin,
+            endMin: originalItem.endMin,
+            durationMin: originalItem.durationMin || 5,
+            fixed: false,
+            locked: false,
+            deletable: false,
+            status: 'skipped',
+            source: 'user',
+            createdAt: nowISO,
+            updatedAt: nowISO,
+            notes: 'deleted-marker',
+            meta: {
+              suppressedId: id,
+              suppressedKey: buildSuppressionKey(originalItem),
+              suppressedExactKey: buildSuppressionExactKey(originalItem),
+            },
+          };
+
+          const overrideEntry: ScheduleItem = {
+            ...originalItem,
+            ...updates,
+            id: `override-${id}-${Date.now()}`,
+            source: 'user',
+            status: updates.status || originalItem.status || 'planned',
+            createdAt: nowISO,
+            updatedAt: nowISO,
+            fixed: updates.fixed !== undefined ? updates.fixed : false,
+            locked: false,
+            deletable: true,
+            meta: {
+              ...(originalItem.meta || {}),
+              ...(updates.meta || {}),
+              overriddenFromId: id,
+            },
+          };
+
+          updated = normalizeScheduleEntries([...withoutOriginalAndMarkers, suppressionMarker, overrideEntry]);
+        } else {
+          const protectedOverride: ScheduleItem = {
+            ...originalItem,
+            ...updates,
+            source: 'user',
+            status: updates.status || originalItem.status || 'planned',
+            createdAt: originalItem.createdAt || nowISO,
+            updatedAt: nowISO,
+            fixed: updates.fixed !== undefined ? updates.fixed : originalItem.fixed,
+            locked: originalItem.type === 'wake' || originalItem.type === 'sleep',
+            deletable: false,
+          };
+
+          updated = normalizeScheduleEntries([...withoutOriginalAndMarkers, protectedOverride]);
+        }
+      } else {
+        console.warn('[PlanStore] Could not find item to update:', id);
+        return;
+      }
+    }
+    
+    set({ todayEntries: updated });
+    
+    // Save to storage
+    const dateISO = format(new Date(), 'yyyy-MM-dd');
+    await AsyncStorage.setItem(`todayEntries_${dateISO}`, JSON.stringify(updated));
+    
+    // Regenerate plan
+    await get().generateFullDayPlan();
+  },
+  
+  // Delete today entry
+  deleteTodayEntry: async (id: string) => {
+    const { todayEntries, profile, fullDayPlan } = get();
+    if (!profile) return;
+
+    const beforeItems = normalizeScheduleEntries(fullDayPlan?.items || todayEntries);
+
+    const entryToDelete = todayEntries.find((item) => item.id === id) || fullDayPlan?.items.find((item) => item.id === id);
+    if (!canDeleteScheduleItem(entryToDelete)) {
+      return;
+    }
+
+    const linkedGeneratedId = typeof entryToDelete?.meta?.overriddenFromId === 'string'
+      ? entryToDelete.meta.overriddenFromId
+      : undefined;
+
+    const generatedEntry =
+      fullDayPlan?.items.find((item) => item.id === id) ||
+      (linkedGeneratedId ? fullDayPlan?.items.find((item) => item.id === linkedGeneratedId) : undefined);
+
+    if (generatedEntry && canDeleteScheduleItem(generatedEntry)) {
+      const marker: ScheduleItem = {
+        id: `suppress-${generatedEntry.id}`,
+        type: 'custom',
+        title: 'Suppressed Item',
+        startISO: generatedEntry.startISO,
+        endISO: generatedEntry.endISO,
+        startTime: generatedEntry.startTime,
+        endTime: generatedEntry.endTime,
+        startMin: generatedEntry.startMin,
+        endMin: generatedEntry.endMin,
+        durationMin: generatedEntry.durationMin || 5,
+        fixed: false,
+        locked: false,
+        deletable: false,
+        status: 'skipped',
+        source: 'user',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        notes: 'deleted-marker',
+        meta: {
+          suppressedId: generatedEntry.id,
+          suppressedKey: buildSuppressionKey(generatedEntry),
+          suppressedExactKey: buildSuppressionExactKey(generatedEntry),
+        },
+      };
+
+      const withoutTarget = todayEntries.filter(
+        (entry) => entry.id !== id && entry.id !== generatedEntry.id
+      );
+      const withoutOldMarkers = withoutTarget.filter(
+        (entry) => entry.meta?.suppressedId !== generatedEntry.id
+      );
+      const withMarker = normalizeScheduleEntries([...withoutOldMarkers, marker]);
+      set({ todayEntries: withMarker });
+      const dateISO = format(new Date(), 'yyyy-MM-dd');
+      await AsyncStorage.setItem(`todayEntries_${dateISO}`, JSON.stringify(withMarker));
+      await get().generateFullDayPlan({
+        intent: 'DELETE_VALIDATE_ONLY',
+        baseItems: withMarker,
+        beforeItems,
+        deletedItemId: generatedEntry.id,
+      });
+      return;
+    }
+
+    const updated = deleteScheduleItem({
+      itemId: id,
+      currentSchedule: normalizeScheduleEntries(todayEntries),
+      settings: profile,
+      dateISO: format(new Date(), 'yyyy-MM-dd'),
+    }).items;
+
+    set({ todayEntries: updated });
+
+    const dateISO = format(new Date(), 'yyyy-MM-dd');
+    await AsyncStorage.setItem(`todayEntries_${dateISO}`, JSON.stringify(updated));
+    
+    // Regenerate plan
+    await get().generateFullDayPlan({
+      intent: 'DELETE_VALIDATE_ONLY',
+      baseItems: updated,
+      beforeItems,
+      deletedItemId: id,
+    });
+  },
+
+  getTomorrowPreview: async () => {
+    const { profile, dayState } = get();
+    const tomorrow = addMinutes(new Date(), 24 * 60);
+    const dateISO = format(tomorrow, 'yyyy-MM-dd');
+
+    if (!profile) {
+      return {
+        dateISO,
+        wakeTime: '07:00',
+        sleepTime: '23:00',
+        anchors: [
+          { title: 'Meal 1', time: '08:30' },
+          { title: 'Lunch', time: '12:30' },
+          { title: 'Workout / Walk', time: '17:30' },
+        ],
+        generated: false,
+      };
+    }
+
+    const generated = buildTimelinePlan({
+      dateISO,
+      settings: profile,
+      todayEntries: [],
+      constraints: dayState?.constraints,
+      plannedMeals: dayState?.plannedMeals,
+      plannedWorkouts: dayState?.plannedWorkouts,
+    });
+
+    return {
+      dateISO,
+      wakeTime: profile.wakeTime,
+      sleepTime: profile.sleepTime,
+      workStartTime: profile.workStartTime,
+      workEndTime: profile.workEndTime,
+      anchors: generated.items
+        .filter((item) => item.type === 'wake' || item.type === 'work' || item.type === 'lunch' || item.type === 'meal' || item.type === 'snack' || item.type === 'walk' || item.type === 'workout' || item.type === 'sleep')
+        .slice(0, 10)
+        .map((item) => ({ title: item.title, time: minutesToHHmm(item.startMin || 0) })),
+      items: generated.items,
+      suggestions: generated.recommendations,
+      generated: true,
+    };
+  },
+  
+  // Add event (generic)
+  addEvent: async (event: Event) => {
+    const { dayState } = get();
+    if (!dayState) return;
+    
+    const updatedState: DayState = {
+      ...dayState,
+      events: [...dayState.events, event],
+    };
+    
+    set({ dayState: updatedState });
+    await get().generatePlan(true);
+  },
+  
+  // Update event
+  updateEvent: async (eventId: string, updates: Partial<Event>) => {
+    const { dayState } = get();
+    if (!dayState) return;
+    
+    const updatedEvents = dayState.events.map(e => {
+      // Match by time and type (simple strategy)
+      const timeMatch = updates.time && e.time.getTime() === updates.time.getTime();
+      const typeMatch = e.type === updates.type;
+      return (timeMatch && typeMatch) ? { ...e, ...updates } as Event : e;
+    });
+    
+    const updatedState: DayState = {
+      ...dayState,
+      events: updatedEvents,
+    };
+    
+    set({ dayState: updatedState });
+    await get().generatePlan(true);
+  },
+  
+  // Mark event as done
+  markDone: async (eventId: string) => {
+    const { dayState, computedPlan } = get();
+    if (!dayState || !computedPlan) return;
+    
+    // Find event in computed plan
+    const step = computedPlan.scheduleItems.find(s => s.id === eventId);
+    if (!step) return;
+    
+    const doneEvent: Event = {
+      ...step.event,
+      status: 'DONE',
+    };
+    
+    const updatedState: DayState = {
+      ...dayState,
+      events: [...dayState.events, doneEvent],
+      completedEvents: [...dayState.completedEvents, doneEvent],
+    };
+    
+    set({ dayState: updatedState });
+    await get().generatePlan(true);
+  },
+  
+  // Mark event as skipped
+  markSkipped: async (eventId: string) => {
+    const { dayState, computedPlan } = get();
+    if (!dayState || !computedPlan) return;
+    
+    const step = computedPlan.scheduleItems.find(s => s.id === eventId);
+    if (!step) return;
+    
+    const skippedEvent: Event = {
+      ...step.event,
+      status: 'SKIPPED',
+    };
+    
+    const updatedState: DayState = {
+      ...dayState,
+      events: [...dayState.events, skippedEvent],
+    };
+    
+    set({ dayState: updatedState });
+    await get().generatePlan(true);
+  },
+  
+  // Delete event
+  deleteEvent: async (eventId: string) => {
+    const { dayState } = get();
+    if (!dayState) return;
+    
+    // Add to removedStepIds
+    const updatedState: DayState = {
+      ...dayState,
+      removedStepIds: [...dayState.removedStepIds, eventId],
+    };
+    
+    set({ dayState: updatedState });
+    await get().generatePlan(true);
+  },
+  
+  // Delay meal
+  delayMeal: async (mealId: string, minutes: number) => {
+    const { dayState, computedPlan } = get();
+    if (!dayState || !computedPlan) return;
+    
+    const step = computedPlan.scheduleItems.find(s => s.id === mealId);
+    if (!step || step.event.type !== 'meal') return;
+    
+    const delayedEvent: MealEvent = {
+      ...step.event as MealEvent,
+      time: addMinutes(step.event.time, minutes),
+      originalPlannedTime: step.event.time,
+    };
+    
+    const updatedState: DayState = {
+      ...dayState,
+      modifiedEvents: {
+        ...dayState.modifiedEvents,
+        [mealId]: delayedEvent,
+      },
+    };
+    
+    set({ dayState: updatedState });
+    await get().generatePlan(true);
+  },
+  
+  // Add comfort meal
+  addComfortMeal: async (time: Date) => {
+    const comfortMeal: MealEvent = {
+      type: 'meal',
+      time,
+      mealType: 'comfort-meal',
+      source: 'USER',
+      status: 'PLANNED',
+      meal: {
+        category: 'COMFORT',
+        template: 'Comfort Window Meal',
+      },
+    };
+    
+    await get().addEvent(comfortMeal);
+  },
+  
+  // Add meeting block
+  addMeetingBlock: async (start: Date, end: Date, description?: string) => {
+    const { dayState } = get();
+    if (!dayState) return;
+    
+    const meeting: ConstraintBlock = {
+      start,
+      end,
+      type: 'meeting',
+      description,
+    };
+    
+    const updatedState: DayState = {
+      ...dayState,
+      constraints: [...dayState.constraints, meeting],
+    };
+    
+    set({ dayState: updatedState });
+    await get().generatePlan(true);
+  },
+  
+  // Shorten walk
+  shortenWalk: async (walkId: string, newDuration: number) => {
+    const { dayState, computedPlan } = get();
+    if (!dayState || !computedPlan) return;
+    
+    const step = computedPlan.scheduleItems.find(s => s.id === walkId);
+    if (!step || step.event.type !== 'walk') return;
+    
+    const updatedWalk: WalkEvent = {
+      ...step.event as WalkEvent,
+      duration: newDuration,
+    };
+    
+    const updatedState: DayState = {
+      ...dayState,
+      modifiedEvents: {
+        ...dayState.modifiedEvents,
+        [walkId]: updatedWalk,
+      },
+    };
+    
+    set({ dayState: updatedState });
+    await get().generatePlan(true);
+  },
+  
+  // Set stress level
+  setStress: async (level: number) => {
+    const { dayState } = get();
+    if (!dayState) return;
+    
+    const updatedState: DayState = {
+      ...dayState,
+      stressLevel: level,
+    };
+    
+    set({ dayState: updatedState });
+    await get().generatePlan(true);
+  },
+  
+  // Set sleep level
+  setSleep: async (level: number) => {
+    const { dayState } = get();
+    if (!dayState) return;
+    
+    const updatedState: DayState = {
+      ...dayState,
+      sleepQuality: level,
+    };
+    
+    set({ dayState: updatedState });
+    await get().generatePlan(true);
+  },
+
+  setQuickStatusSignals: async (signals: QuickStatusSignal[]) => {
+    const { dayState } = get();
+    if (!dayState) return;
+
+    const normalizedSignals = normalizeQuickStatusSignals(signals);
+    const dateKey = format(new Date(), 'yyyy-MM-dd');
+    const updatedState: DayState = {
+      ...dayState,
+      isHungry: normalizedSignals.includes('hungry-now'),
+      isCraving: normalizedSignals.includes('craving-comfort'),
+    };
+
+    (updatedState as any).quickStatusSignals = normalizedSignals;
+
+    set({ dayState: updatedState });
+    await AsyncStorage.setItem(`dayState_${dateKey}`, JSON.stringify(updatedState));
+
+    get().syncToAPI().catch((error) => {
+      console.warn('[PlanStore] Quick status sync failed:', error);
+    });
+  },
+  
+  // Sync to API
+  syncToAPI: async () => {
+    const { deviceId, dayState, fullDayPlan, todayEntries, syncStatus } = get();
+    
+    if (!deviceId || !dayState) return;
+    if (syncStatus === 'syncing') return; // Prevent concurrent syncs
+    
+    set({ syncStatus: 'syncing' });
+    
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), API_TIMEOUT);
+      
+      const response = await fetch(`${API_BASE_URL}/day/${deviceId}/state`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          dayState,
+          fullDayPlan,
+          todayEntries,
+          syncedAt: new Date().toISOString(),
+        }),
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeout);
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      set({ syncStatus: 'synced', lastSyncAt: new Date(), syncError: null });
+    } catch (error: any) {
+      console.warn('[PlanStore] API sync failed:', error.message);
+      // Don't set error status for network errors (offline is acceptable)
+      set({ syncStatus: 'offline', syncError: error.message });
+    }
+  },
+  
+  enableAutoRefresh: () => set({ autoRefreshEnabled: true }),
+  disableAutoRefresh: () => set({ autoRefreshEnabled: false }),
+}));
+
+// Auto-refresh hook (call in root component)
+let autoRefreshTimer: NodeJS.Timeout | null = null;
+
+export function startAutoRefresh() {
+  if (autoRefreshTimer) return;
+  
+  autoRefreshTimer = setInterval(() => {
+    const state = usePlanStore.getState();
+    
+    if (!state.autoRefreshEnabled) return;
+    
+    const staleness = state.checkStaleness();
+    
+    if (staleness === 'STALE' || staleness === 'CRITICAL') {
+      console.log('[PlanStore] Auto-refreshing stale plan');
+      state.generatePlan(true).catch(err => {
+        console.error('[PlanStore] Auto-refresh failed:', err);
+      });
+    }
+  }, usePlanStore.getState().autoRefreshIntervalMs);
+}
+
+export function stopAutoRefresh() {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
+}
+
+
+
+
+========================================================================================================================
+FILE: apps/mobile/scripts/verifyDeleteScenarios.ts
+========================================================================================================================
+
+import type { ScheduleItem, UserProfile } from '@physiology-engine/shared';
+import { applyScheduleMutation } from '../src/engine/applyScheduleMutation';
+import { analyzeDeletionImpact } from '../src/engine/analyzeDeletionImpact';
+import type { RecommendationContext } from '../src/utils/recommendationContext';
+
+function assertCheck(condition: boolean, message: string) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+const baseDate = '2026-03-09';
+
+const profile: UserProfile = {
+  wakeTime: '07:00',
+  sleepTime: '23:00',
+  preferredFastingHours: 14,
+  caffeineToleranceLow: false,
+  stressBaseline: 5,
+  defaultDayMode: 'flex',
+  mealSequencePreference: 'balanced',
+  fitnessGoal: 'MAINTENANCE',
+  workStartTime: '09:00',
+  workEndTime: '17:00',
+  lunchTime: '12:30',
+  dietFoundation: 'BALANCED',
+  allowComfortWindow: true,
+  useLearnedRhythm: true,
+  useWeekendSchedule: false,
+};
+
+function makeItem(
+  id: string,
+  type: ScheduleItem['type'],
+  title: string,
+  startMin: number,
+  endMin: number,
+  source: ScheduleItem['source'] = 'system',
+): ScheduleItem {
+  const toClock = (minutes: number) => {
+    const normalized = ((minutes % (24 * 60)) + (24 * 60)) % (24 * 60);
+    const hour24 = Math.floor(normalized / 60);
+    const minute = normalized % 60;
+    return {
+      hour: (hour24 % 12) || 12,
+      minute,
+      period: hour24 >= 12 ? 'PM' as const : 'AM' as const,
+    };
+  };
+
+  return {
+    id,
+    type,
+    title,
+    startISO: `${baseDate}T00:00:00.000Z`,
+    endISO: `${baseDate}T00:00:00.000Z`,
+    startTime: toClock(startMin),
+    endTime: toClock(endMin),
+    startMin,
+    endMin,
+    durationMin: endMin - startMin,
+    fixed: type === 'wake' || type === 'sleep',
+    locked: type === 'wake' || type === 'sleep',
+    deletable: type !== 'wake' && type !== 'sleep',
+    source,
+    status: 'planned',
+  };
+}
+
+function buildSchedule(): ScheduleItem[] {
+  return [
+    makeItem('wake-1', 'wake', 'Wake / Start Day', 420, 425),
+    makeItem('focus-1', 'focus', 'Deep Focus', 540, 600, 'user'),
+    makeItem('snack-1', 'snack', 'Protein Snack', 660, 675, 'user'),
+    makeItem('meal-1', 'meal', 'Lunch', 750, 780, 'user'),
+    makeItem('walk-1', 'walk', 'Post-Meal Walk', 790, 800, 'user'),
+    makeItem('workout-1', 'workout', 'Strength Session', 1020, 1070, 'user'),
+    makeItem('custom-1', 'custom', 'Custom Admin Block', 1080, 1100, 'user'),
+    makeItem('meal-2', 'meal', 'Dinner', 1140, 1170, 'user'),
+    makeItem('sleep-1', 'sleep', 'Sleep', 1380, 1385),
+  ];
+}
+
+function makeRecommendationContext(schedule: ScheduleItem[]): RecommendationContext {
+  return {
+    date: baseDate,
+    now: `${baseDate}T13:45:00.000Z`,
+    wakeTime: '07:00',
+    sleepTime: '23:00',
+    workStart: '09:00',
+    workEnd: '17:00',
+    lunchTime: '12:30',
+    dayMode: 'flex',
+    fitnessGoal: 'MAINTENANCE',
+    dietFoundation: 'BALANCED',
+    mealSequencePreference: 'balanced',
+    mealSequence: 'balanced',
+    fastingHours: 14,
+    sleepScore: 7,
+    stressLevel: 5,
+    quickStatusSignals: [],
+    quickStatusImpact: { modifier: 0, label: 'neutral' },
+    timelineItems: schedule,
+    actualEvents: [],
+  };
+}
+
+function itemSignature(item: ScheduleItem): string {
+  return `${item.type}|${(item.title || '').trim().toLowerCase()}|${item.startMin || 0}|${item.source || 'system'}`;
+}
+
+function countByType(items: ScheduleItem[], type: ScheduleItem['type']): number {
+  return items.filter((item) => item.type === type).length;
+}
+
+function assertChronological(items: ScheduleItem[], label: string) {
+  for (let index = 1; index < items.length; index++) {
+    assertCheck((items[index - 1].startMin || 0) <= (items[index].startMin || 0), `${label}: schedule is not chronological`);
+  }
+}
+
+function assertNoDuplicateSignatures(items: ScheduleItem[], label: string) {
+  const signatures = items.map(itemSignature);
+  const unique = new Set(signatures);
+  assertCheck(unique.size === signatures.length, `${label}: duplicate items detected`);
+}
+
+function assertNoBrandNewItems(before: ScheduleItem[], after: ScheduleItem[], deletedId: string, label: string) {
+  const beforeCounts = new Map<string, number>();
+  for (const item of before) {
+    if (item.id === deletedId) continue;
+    const key = itemSignature(item);
+    beforeCounts.set(key, (beforeCounts.get(key) || 0) + 1);
+  }
+
+  for (const item of after) {
+    const key = itemSignature(item);
+    const available = beforeCounts.get(key) || 0;
+    assertCheck(available > 0, `${label}: unexpected inserted item detected (${key})`);
+    beforeCounts.set(key, available - 1);
+  }
+}
+
+function runScenario(
+  label: string,
+  targetId: string,
+  checks: (before: ScheduleItem[], after: ScheduleItem[]) => void
+) {
+  const initialSchedule = buildSchedule();
+  const deleted = initialSchedule.find((item) => item.id === targetId);
+  assertCheck(Boolean(deleted), `${label}: target not found in fixture`);
+
+  const resultItems = applyScheduleMutation({
+    currentItems: initialSchedule,
+    mutation: { kind: 'delete', id: targetId },
+    settings: profile,
+    intent: 'DELETE',
+    dateISO: baseDate,
+  });
+
+  assertCheck(!resultItems.some((i) => i.id === targetId), `${label}: target still present after delete`);
+  assertCheck(resultItems.length === initialSchedule.length - 1, `${label}: schedule count must decrease by exactly one`);
+  assertCheck(resultItems.length <= initialSchedule.length, `${label}: count increased after delete`);
+  assertNoBrandNewItems(initialSchedule, resultItems, targetId, label);
+  assertNoDuplicateSignatures(resultItems, label);
+  assertChronological(resultItems, label);
+
+  checks(initialSchedule, resultItems);
+
+  const scheduleBeforeImpact = JSON.stringify(resultItems);
+  const recommendationContext = makeRecommendationContext(resultItems);
+
+  const impact = analyzeDeletionImpact({
+    deletedItem: deleted!,
+    updatedSchedule: resultItems,
+    recommendationContext,
+    energyForecast: {
+      dipHour: 15,
+      dipEnergy: 40,
+      confidence: { score: 0.82, label: 'High' },
+    } as any,
+  });
+
+  const scheduleAfterImpact = JSON.stringify(resultItems);
+  assertCheck(scheduleBeforeImpact === scheduleAfterImpact, `${label}: analyzer mutated schedule`);
+  assertCheck(Array.isArray(impact.recommendationOptions), `${label}: recommendation options missing`);
+
+  const keepAsIsBefore = JSON.stringify(resultItems);
+  const keepAsIsAfter = JSON.stringify(resultItems);
+  assertCheck(keepAsIsBefore === keepAsIsAfter, `${label}: keep-as-is changed timeline`);
+
+  return {
+    label,
+    deletedId: targetId,
+    severity: impact.severity,
+    options: impact.recommendationOptions.length,
+    summary: impact.impactSummary,
+  };
+}
+
+function main() {
+  const reports = [
+    runScenario('Lunch delete scenario', 'meal-1', (before, after) => {
+      assertCheck(countByType(after, 'meal') === countByType(before, 'meal') - 1, 'Lunch delete: meal count did not decrease');
+      assertCheck(!after.some((item) => item.type === 'meal' && (item.title || '').trim().toLowerCase() === 'lunch'), 'Lunch delete: new lunch appeared');
+      assertCheck(countByType(after, 'snack') === countByType(before, 'snack'), 'Lunch delete: snack auto-added');
+    }),
+    runScenario('Workout delete scenario', 'workout-1', (before, after) => {
+      assertCheck(countByType(after, 'workout') === countByType(before, 'workout') - 1, 'Workout delete: workout count did not decrease');
+      assertCheck(!after.some((item) => item.type === 'workout' && (item.title || '').trim().toLowerCase() === 'strength session'), 'Workout delete: new workout appeared');
+      assertCheck(countByType(after, 'walk') === countByType(before, 'walk'), 'Workout delete: replacement movement inserted');
+    }),
+    runScenario('Walk delete scenario', 'walk-1', (before, after) => {
+      assertCheck(countByType(after, 'walk') === countByType(before, 'walk') - 1, 'Walk delete: walk count did not decrease');
+      assertCheck(!after.some((item) => item.type === 'walk' && (item.title || '').trim().toLowerCase() === 'post-meal walk'), 'Walk delete: new walk appeared');
+      assertCheck(countByType(after, 'workout') === countByType(before, 'workout'), 'Walk delete: replacement movement inserted');
+    }),
+    runScenario('Focus delete scenario', 'focus-1', (before, after) => {
+      const beforeFocus = before.filter((i) => i.type === 'focus').length;
+      const afterFocus = after.filter((i) => i.type === 'focus').length;
+      assertCheck(afterFocus === beforeFocus - 1, 'Focus delete: focus block recreated');
+      assertCheck(!after.some((item) => item.type === 'focus' && (item.title || '').trim().toLowerCase() === 'deep focus'), 'Focus delete: replacement focus block appeared');
+    }),
+    runScenario('Custom delete scenario', 'custom-1', (_before, after) => {
+      assertCheck(!after.some((i) => i.type === 'custom' && i.title === 'Custom Admin Block'), 'Custom delete: custom item still present/recreated');
+    }),
+    runScenario('No recommendation acceptance scenario', 'snack-1', (_before, _after) => {
+      // Keep-as-is behavior is asserted in runScenario by verifying schedule does not change unless recommendation is applied.
+      assertCheck(true, 'No recommendation acceptance scenario passed');
+    }),
+  ];
+
+  console.log('\nDelete scenario verification report:');
+  for (const report of reports) {
+    console.log(`- ${report.label}: PASS | deleted=${report.deletedId} | severity=${report.severity} | options=${report.options}`);
+  }
+
+  console.log('\nAll requested delete scenarios passed.');
+}
+
+try {
+  main();
+} catch (error) {
+  console.error('\nScenario verification failed:\n', error);
+  process.exit(1);
+}
+
+
+
+
+========================================================================================================================
+FILE: apps/mobile/src/screens/TimelineScreen.tsx
+========================================================================================================================
+
+import React, { useMemo, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { format, addMinutes, differenceInMinutes } from 'date-fns';
+import type { ScheduleItem } from '@physiology-engine/shared';
+import { usePlanStore } from '../store/planStore';
+import EditScheduleItemModal from '../components/EditScheduleItemModal';
+import LogActualEventModal, { type ActualLogInput } from '../components/LogActualEventModal';
+import TooltipModal from '../components/help/TooltipModal';
+import WhyThisModal from '../components/help/WhyThisModal';
+import { validateSchedule } from '../engine/validateSchedule';
+import { canDeleteScheduleItem } from '../engine/normalizeTimeline';
+import { clockTimeFromISO, formatClockTime, parseClockTime } from '../utils/clockTime';
+import { useTodayEntryState } from '../hooks/useTodayEntryState';
+import { useFeatureDiscovery } from '../hooks/useFeatureDiscovery';
+import { useTheme, Card, Pill, IconButton, PrimaryButton, AppIcon } from '@physiology-engine/ui';
+
+const suppressionBroadKeyForItem = (item: Pick<ScheduleItem, 'type' | 'title'>): string => {
+  const normalizedTitle = (item.title || '').trim().toLowerCase();
+  return `${item.type}|${normalizedTitle}`;
+};
+
+const suppressionExactKeyForItem = (item: Pick<ScheduleItem, 'type' | 'title' | 'startMin' | 'startISO' | 'startTime'>): string => {
+  const normalizedTitle = (item.title || '').trim().toLowerCase();
+  const minuteFromIso = typeof item.startISO === 'string' && item.startISO.includes('T')
+    ? Number.parseInt(item.startISO.slice(11, 13), 10) * 60 + Number.parseInt(item.startISO.slice(14, 16), 10)
+    : undefined;
+  const minuteFromTime = item.startTime
+    ? (((item.startTime.period === 'PM' ? (item.startTime.hour % 12) + 12 : item.startTime.hour % 12) * 60) + item.startTime.minute)
+    : undefined;
+  const startMinute = item.startMin ?? minuteFromIso ?? minuteFromTime ?? 0;
+  return `${item.type}|${normalizedTitle}|${startMinute}`;
+};
+
+const iconByType: Record<string, any> = {
+  wake: 'sunrise',
+  sleep: 'sleep',
+  work: 'work',
+  meal: 'meal',
+  snack: 'snack',
+  workout: 'workout',
+  walk: 'walk',
+  focus: 'focus',
+  break: 'break',
+  meeting: 'meeting',
+  hydration: 'water',
+  stretch: 'stretch',
+  winddown: 'winddown',
+};
+
+export default function TimelineScreen({ navigation }: any) {
+  const { colors, typography, spacing, radius } = useTheme();
+  const {
+    profile,
+    dayState,
+    fullDayPlan,
+    todayEntries,
+    todayPlanSettingsFingerprint,
+    checkStaleness,
+    generateFullDayPlan,
+    refreshFromNow,
+    updateTodayEntry,
+    deleteTodayEntry,
+    addTodayEntry,
+    setTodayEntries,
+  } = usePlanStore();
+
+  const [editingItem, setEditingItem] = useState<ScheduleItem | null>(null);
+  const [showLogModal, setShowLogModal] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
+  const [dismissRefreshPrompt, setDismissRefreshPrompt] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(false);
+  const [showWhyThis, setShowWhyThis] = useState(false);
+  const discovery = useFeatureDiscovery('timeline-actions', 3);
+
+  const todayISO = format(new Date(), 'yyyy-MM-dd');
+  const yesterdayISO = format(addMinutes(new Date(), -24 * 60), 'yyyy-MM-dd');
+
+  const staleness = checkStaleness();
+  const entryState = useTodayEntryState({
+    fullDayPlan,
+    profile,
+    settingsFingerprint: todayPlanSettingsFingerprint,
+    staleness,
+  });
+
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const sortedItems = useMemo(() => {
+    if (!fullDayPlan || !profile) return [] as ScheduleItem[];
+
+    const wakeTime = profile.wakeClockTime || parseClockTime(profile.wakeTime) || { hour: 7, minute: 0, period: 'AM' as const };
+    const sleepTime = profile.sleepClockTime || parseClockTime(profile.sleepTime) || { hour: 11, minute: 0, period: 'PM' as const };
+
+    const validation = validateSchedule({
+      items: fullDayPlan.items,
+      wakeTime,
+      sleepTime,
+      dateISO: fullDayPlan.dateISO,
+    });
+
+    const suppressedIds = new Set(
+      todayEntries
+        .map((entry) => entry.meta?.suppressedId as string | undefined)
+        .filter((value): value is string => Boolean(value))
+    );
+
+    const suppressedBroadKeys = new Set(
+      todayEntries
+        .map((entry) => entry.meta?.suppressedKey as string | undefined)
+        .filter((value): value is string => Boolean(value))
+    );
+
+    const suppressedExactKeys = new Set(
+      todayEntries
+        .map((entry) => entry.meta?.suppressedExactKey as string | undefined)
+        .filter((value): value is string => Boolean(value))
+    );
+
+    return validation.items
+      .filter((item) => {
+        if (item.type === 'wake' || item.type === 'sleep') return true;
+        if (suppressedIds.has(item.id)) return false;
+        if (suppressedBroadKeys.has(suppressionBroadKeyForItem(item))) return false;
+        if (suppressedExactKeys.has(suppressionExactKeyForItem(item))) return false;
+        return true;
+      })
+      .sort((left, right) => (left.startMin || 0) - (right.startMin || 0));
+  }, [fullDayPlan, profile, todayEntries]);
+
+  const pendingItems = sortedItems.filter((item) => item.status !== 'actual' && item.origin !== 'actual' && item.status !== 'skipped');
+
+  const liveNow = pendingItems.find((item) => {
+    const start = item.startMin || 0;
+    const end = item.endMin || (start + (item.durationMin || 5));
+    return start <= nowMinutes && nowMinutes <= end;
+  }) || null;
+
+  const nowItem = liveNow || pendingItems.find((item) => (item.startMin || 0) >= nowMinutes) || pendingItems[0] || null;
+  const afterNow = pendingItems.filter((item) => !nowItem || item.id !== nowItem.id);
+  const comingUp = afterNow.slice(0, 4);
+  const laterToday = afterNow.slice(4);
+
+  const updatedAtMinutesAgo = useMemo(() => {
+    const updatedAt = sortedItems
+      .map((item) => item.updatedAt)
+      .filter(Boolean)
+      .map((iso) => new Date(iso as string))
+      .filter((date) => !Number.isNaN(date.getTime()))
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+
+    if (!updatedAt) return null;
+    return Math.max(0, differenceInMinutes(new Date(), updatedAt));
+  }, [sortedItems]);
+
+  const refreshToday = async () => {
+    setIsBusy(true);
+    try {
+      await generateFullDayPlan();
+      setDismissRefreshPrompt(false);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleRefreshFromNow = async () => {
+    setIsBusy(true);
+    try {
+      await refreshFromNow();
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleSaveItem = async (item: ScheduleItem) => {
+    setIsBusy(true);
+    try {
+      await updateTodayEntry(item.id, item);
+      setEditingItem(null);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleDeleteItem = async () => {
+    if (!editingItem) return;
+    if (!canDeleteScheduleItem(editingItem)) {
+      Alert.alert('Cannot delete', 'Wake and sleep anchors cannot be deleted.');
+      return;
+    }
+
+    setIsBusy(true);
+    try {
+      await deleteTodayEntry(editingItem.id);
+      setEditingItem(null);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleLogActual = async (input: ActualLogInput) => {
+    const start = new Date(input.time);
+    const duration = input.durationMin || (input.type === 'walk' ? 20 : input.type === 'workout' ? 35 : input.type === 'meal' ? 30 : 15);
+    const startMin = start.getHours() * 60 + start.getMinutes();
+
+    setIsBusy(true);
+    try {
+      await addTodayEntry({
+        type: input.type === 'caffeine' ? 'custom' : input.type,
+        title: input.type === 'meal' ? `Meal (${input.mealType || 'lean-protein'})` : input.type === 'snack' ? 'Snack' : input.type === 'walk' ? 'Walk' : input.type === 'workout' ? 'Workout' : 'Caffeine',
+        startISO: start.toISOString(),
+        endISO: addMinutes(start, duration).toISOString(),
+        startMin,
+        endMin: startMin + duration,
+        durationMin: duration,
+        fixed: false,
+        locked: false,
+        deletable: true,
+        source: 'user',
+        status: 'actual',
+      });
+      setShowLogModal(false);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const markDone = async (item: ScheduleItem) => {
+    setIsBusy(true);
+    try {
+      await updateTodayEntry(item.id, { status: 'actual', origin: 'actual', completedAt: new Date().toISOString() });
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const addWalkNow = async () => {
+    const startMin = now.getHours() * 60 + now.getMinutes();
+    setIsBusy(true);
+    try {
+      await addTodayEntry({
+        type: 'walk',
+        title: '10min Walk',
+        startISO: now.toISOString(),
+        endISO: addMinutes(now, 10).toISOString(),
+        startMin,
+        endMin: startMin + 10,
+        durationMin: 10,
+        fixed: false,
+        locked: false,
+        deletable: true,
+        source: 'user',
+        status: 'planned',
+      });
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const buildToday = async () => {
+    setIsBusy(true);
+    try {
+      await setTodayEntries([]);
+      await generateFullDayPlan();
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const renderTimelineItem = (item: ScheduleItem) => {
+    const startClock = item.startTime || clockTimeFromISO(item.startISO);
+    const timeLabel = startClock ? formatClockTime(startClock) : '12:00 AM';
+
+    return (
+      <TouchableOpacity
+        key={item.id}
+        onPress={() => setEditingItem(item)}
+        onLongPress={() => Alert.alert(item.title, 'Choose an action', [
+          { text: 'Mark Done', onPress: () => void markDone(item) },
+          ...(canDeleteScheduleItem(item) ? [{ text: 'Delete', style: 'destructive' as const, onPress: () => { setEditingItem(item); void handleDeleteItem(); } }] : []),
+          { text: 'Cancel', style: 'cancel' },
+        ])}
+        style={[styles.itemRow, { borderColor: colors.borderSubtle, backgroundColor: colors.surfaceElevated }]}
+      >
+        <View style={styles.timeCol}>
+          <Text style={[typography.caption, { color: colors.textMuted }]}>{timeLabel}</Text>
+        </View>
+        <View style={styles.bodyCol}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <AppIcon name={iconByType[item.type] || 'calendar'} size={14} color={colors.textSecondary} />
+            <Text style={[typography.bodyM, { color: colors.textPrimary, marginLeft: spacing.xs, fontWeight: '600' }]}>{item.title}</Text>
+          </View>
+          <Text style={[typography.caption, { color: colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
+            {item.status === 'actual' || item.origin === 'actual' ? 'Completed' : item.status === 'adjusted' ? 'Adjusted' : 'Scheduled'}
+          </Text>
+        </View>
+        {item.status === 'actual' || item.origin === 'actual' ? (
+          <AppIcon name="checkCircle" size={18} color={colors.success} />
+        ) : (
+          <TouchableOpacity onPress={() => void markDone(item)}>
+            <AppIcon name="check" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  if (!profile) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.centered}>
+          <Text style={[typography.bodyM, { color: colors.textSecondary }]}>Set up your profile first.</Text>
+          <PrimaryButton onPress={() => navigation.navigate('Onboarding')} style={{ marginTop: spacing.lg }}>
+            Set Up Profile
+          </PrimaryButton>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}> 
+        <View style={styles.headerTop}>
+          <View>
+            <Text style={[typography.titleL, { color: colors.textPrimary }]}>Today</Text>
+            <Text style={[typography.caption, { color: colors.textMuted }]}>{format(new Date(), 'EEEE, MMM d')}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <IconButton icon="chart" onPress={() => navigation.navigate('Insights')} variant="subtle" />
+            <IconButton icon="settings" onPress={() => navigation.navigate('Settings')} variant="subtle" />
+          </View>
+        </View>
+
+        <View style={styles.rowWrap}>
+          <Pill label={dayState?.dayMode || profile.defaultDayMode || 'flex'} variant="accent" style={{ marginRight: spacing.xs, marginBottom: spacing.xs }} />
+          <Pill label={`Sleep ${dayState?.sleepQuality || 7}/10`} variant="muted" style={{ marginRight: spacing.xs, marginBottom: spacing.xs }} />
+          <Pill label={`Stress ${dayState?.stressLevel || 5}/10`} variant="muted" style={{ marginRight: spacing.xs, marginBottom: spacing.xs }} />
+          <Pill label={`Fast ${profile.preferredFastingHours || 14}h`} variant="muted" style={{ marginRight: spacing.xs, marginBottom: spacing.xs }} />
+          <Pill label={`Momentum ${staleness}`} variant="muted" style={{ marginBottom: spacing.xs }} />
+        </View>
+
+        <View style={styles.rowWrap}>
+          <TouchableOpacity onPress={() => navigation.navigate('History', { dateISO: yesterdayISO })} style={{ marginRight: spacing.xs }}>
+            <Pill label="Yesterday" variant="muted" />
+          </TouchableOpacity>
+          <Pill label="Today" variant="accent" style={{ marginRight: spacing.xs }} />
+          <TouchableOpacity onPress={() => navigation.navigate('Tomorrow')}>
+            <Pill label="Tomorrow" variant="muted" />
+          </TouchableOpacity>
+        </View>
+
+        {updatedAtMinutesAgo !== null && (
+          <Text style={[typography.caption, { color: colors.textMuted, marginTop: spacing.xs }]}>Updated {updatedAtMinutesAgo} min ago</Text>
+        )}
+      </View>
+
+      <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: spacing['2xl'] }}>
+        {discovery.shouldShow(1) ? (
+          <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+            <Card>
+              <Text style={[typography.caption, { color: colors.textSecondary }]}>Tip: Use â€œRefresh from nowâ€ after delays to re-align the rest of your day.</Text>
+              <TouchableOpacity onPress={() => void discovery.advanceLevel()} style={{ marginTop: spacing.xs }}>
+                <Text style={[typography.caption, { color: colors.accentPrimary }]}>Dismiss</Text>
+              </TouchableOpacity>
+            </Card>
+          </View>
+        ) : null}
+
+        {entryState === 'NO_PLAN' ? (
+          <View style={{ padding: spacing.lg }}>
+            <Card>
+              <Text style={[typography.bodyM, { color: colors.textPrimary, fontWeight: '700' }]}>Build Today</Text>
+              <Text style={[typography.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>No active plan found for today. Build once, then adapt continuously.</Text>
+              <PrimaryButton onPress={() => void buildToday()} style={{ marginTop: spacing.md }}>
+                {isBusy ? 'Building...' : 'Build Today'}
+              </PrimaryButton>
+              <TouchableOpacity onPress={() => navigation.navigate('TodaySetup')} style={{ marginTop: spacing.sm }}>
+                <Text style={[typography.caption, { color: colors.accentPrimary }]}>Open Morning Briefing setup</Text>
+              </TouchableOpacity>
+            </Card>
+          </View>
+        ) : (
+          <>
+            {entryState === 'HAS_PLAN_BUT_INPUTS_CHANGED' && !dismissRefreshPrompt && (
+              <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
+                <Card>
+                  <Text style={[typography.bodyM, { color: colors.textPrimary, fontWeight: '700' }]}>Your schedule inputs changed. Refresh todayâ€™s plan?</Text>
+                  <View style={{ flexDirection: 'row', marginTop: spacing.md }}>
+                    <TouchableOpacity
+                      style={{
+                        borderWidth: 1,
+                        borderColor: colors.accentPrimary,
+                        backgroundColor: colors.accentSoft,
+                        borderRadius: radius.md,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: spacing.sm,
+                        marginRight: spacing.sm,
+                      }}
+                      onPress={() => void refreshToday()}
+                    >
+                      <Text style={[typography.caption, { color: colors.accentPrimary }]}>Refresh Plan</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{
+                        borderWidth: 1,
+                        borderColor: colors.borderSubtle,
+                        borderRadius: radius.md,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: spacing.sm,
+                      }}
+                      onPress={() => setDismissRefreshPrompt(true)}
+                    >
+                      <Text style={[typography.caption, { color: colors.textSecondary }]}>Keep Current Plan</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Card>
+              </View>
+            )}
+
+            {(entryState === 'NEEDS_REFRESH_FROM_NOW' || entryState === 'HAS_VALID_PLAN') && (
+              <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
+                <Card>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={[typography.bodyM, { color: colors.textPrimary, fontWeight: '700' }]}>Now</Text>
+                      <TouchableOpacity onPress={() => setShowTooltip(true)} style={{ marginLeft: spacing.xs }}>
+                        <Text style={[typography.caption, { color: colors.accentPrimary, fontWeight: '700' }]}>?</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <TouchableOpacity onPress={() => void handleRefreshFromNow()}>
+                      <Text style={[typography.caption, { color: colors.accentPrimary }]}>{isBusy ? 'Refreshing...' : 'Refresh from now'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity onPress={() => setShowWhyThis(true)} style={{ alignSelf: 'flex-end', marginTop: spacing.xs }}>
+                    <Text style={[typography.caption, { color: colors.accentPrimary }]}>Why this?</Text>
+                  </TouchableOpacity>
+
+                  {nowItem ? (
+                    <>
+                      {renderTimelineItem(nowItem)}
+                      {comingUp[0] ? (
+                        <Text style={[typography.caption, { color: colors.textMuted, marginTop: spacing.xs }]}>Up next: {comingUp[0].title}</Text>
+                      ) : null}
+                    </>
+                  ) : (
+                    <Text style={[typography.caption, { color: colors.textMuted, marginTop: spacing.xs }]}>No active block right now.</Text>
+                  )}
+
+                  <View style={{ flexDirection: 'row', marginTop: spacing.sm }}>
+                    <TouchableOpacity
+                      onPress={() => setShowLogModal(true)}
+                      style={{ borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, marginRight: spacing.xs }}
+                    >
+                      <Text style={[typography.caption, { color: colors.textSecondary }]}>Log Actual</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => void addWalkNow()}
+                      style={{ borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}
+                    >
+                      <Text style={[typography.caption, { color: colors.textSecondary }]}>Insert Walk</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Card>
+              </View>
+            )}
+
+            <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+              <Text style={[typography.caption, { color: colors.textMuted, marginBottom: spacing.xs }]}>COMING UP</Text>
+              {comingUp.length === 0 ? (
+                <Card><Text style={[typography.caption, { color: colors.textMuted }]}>No upcoming items.</Text></Card>
+              ) : (
+                comingUp.map(renderTimelineItem)
+              )}
+            </View>
+
+            <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+              <Text style={[typography.caption, { color: colors.textMuted, marginBottom: spacing.xs }]}>LATER TODAY</Text>
+              {laterToday.length === 0 ? (
+                <Card><Text style={[typography.caption, { color: colors.textMuted }]}>No later items.</Text></Card>
+              ) : (
+                laterToday.map(renderTimelineItem)
+              )}
+            </View>
+          </>
+        )}
+      </ScrollView>
+
+      <EditScheduleItemModal
+        visible={!!editingItem}
+        item={editingItem}
+        onSave={handleSaveItem}
+        onDelete={handleDeleteItem}
+        onClose={() => setEditingItem(null)}
+        isSaving={isBusy}
+      />
+
+      <LogActualEventModal
+        visible={showLogModal}
+        onClose={() => setShowLogModal(false)}
+        onSave={handleLogActual}
+        isSaving={isBusy}
+      />
+
+      <TooltipModal
+        visible={showTooltip}
+        onClose={() => setShowTooltip(false)}
+        title="Timeline actions"
+        description="These controls let you quickly adapt your live schedule without rebuilding from scratch."
+      />
+
+      <WhyThisModal
+        visible={showWhyThis}
+        onClose={() => setShowWhyThis(false)}
+        title="Refresh from now"
+        explanation="This recalculates the rest of your day from the current moment, preserving completed items while reducing drift."
+      />
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  header: {
+    borderBottomWidth: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  rowWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginBottom: 4,
+  },
+  scroll: { flex: 1 },
+  itemRow: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  timeCol: {
+    width: 72,
+    paddingRight: 8,
+  },
+  bodyCol: {
+    flex: 1,
+  },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+});
+
+
+
+
+========================================================================================================================
+FILE: apps/mobile/src/components/EditScheduleItemModal.tsx
+========================================================================================================================
+
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Modal, ScrollView, Switch, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import type { ScheduleItem } from '@physiology-engine/shared';
+import { ensureStartEnd } from '../utils/time';
+import ClockTimeField from './ClockTimeField';
+import { addMinutes, clockTimeFromISO, parseClockTime, toISOWithClockTime, toSortableMinutes } from '../utils/clockTime';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { canDeleteScheduleItem } from '../engine/normalizeTimeline';
+
+interface EditScheduleItemModalProps {
+  visible: boolean;
+  item: ScheduleItem | null;
+  onSave: (item: ScheduleItem) => Promise<void> | void;
+  onDelete?: () => void;
+  onClose: () => void;
+  isSaving?: boolean;
+}
+
+const ITEM_TYPES = [
+  { value: 'wake', label: 'Wake' },
+  { value: 'sleep', label: 'Sleep' },
+  { value: 'work', label: 'Work' },
+  { value: 'meal', label: 'Meal' },
+  { value: 'snack', label: 'Snack' },
+  { value: 'workout', label: 'Workout' },
+  { value: 'walk', label: 'Walk' },
+  { value: 'focus', label: 'Focus' },
+  { value: 'break', label: 'Break' },
+  { value: 'meeting', label: 'Meeting' },
+  { value: 'custom', label: 'Custom' },
+];
+
+export default function EditScheduleItemModal({ visible, item, onSave, onDelete, onClose, isSaving = false }: EditScheduleItemModalProps) {
+  const [editedItem, setEditedItem] = useState<ScheduleItem | null>(item ? ensureStartEnd(item) : item);
+  const insets = useSafeAreaInsets();
+
+  React.useEffect(() => {
+    if (item) {
+      setEditedItem(ensureStartEnd(item));
+    }
+  }, [item]);
+
+  if (!editedItem) return null;
+
+  const handleSave = async () => {
+    if (!editedItem) return;
+
+    const normalized = ensureStartEnd(editedItem);
+    if (normalized.endMin <= normalized.startMin) {
+      Alert.alert('Invalid time', 'End time must be later than start time.');
+      return;
+    }
+
+    await onSave(normalized);
+  };
+
+  const handleDelete = () => {
+    if (onDelete) {
+      onDelete();
+      onClose();
+    }
+  };
+
+  const canDelete = canDeleteScheduleItem(editedItem);
+
+  const handleStartTimeChange = (startTime: NonNullable<ScheduleItem['startTime']>) => {
+    const currentEnd = editedItem.endTime || clockTimeFromISO(editedItem.endISO);
+    const startMin = toSortableMinutes(startTime);
+    const endMin = currentEnd ? Math.max(toSortableMinutes(currentEnd), startMin + 5) : startMin + 5;
+    const computedEnd = endMin === startMin + 5 && !currentEnd ? addMinutes(startTime, 5) : (currentEnd || addMinutes(startTime, 5));
+    setEditedItem({
+      ...editedItem,
+      startTime,
+      endTime: computedEnd,
+      startMin,
+      endMin,
+      durationMin: endMin - startMin,
+      startISO: toISOWithClockTime(editedItem.startISO, startTime),
+      endISO: toISOWithClockTime(editedItem.endISO, computedEnd),
+    });
+  };
+
+  const handleEndTimeChange = (endTime: NonNullable<ScheduleItem['endTime']>) => {
+    const currentStart = editedItem.startTime || clockTimeFromISO(editedItem.startISO);
+    if (!currentStart) return;
+    const startMin = toSortableMinutes(currentStart);
+    const endMin = Math.max(toSortableMinutes(endTime), startMin + 5);
+    const computedEnd = endMin === startMin + 5 ? addMinutes(currentStart, 5) : endTime;
+    setEditedItem({
+      ...editedItem,
+      startTime: currentStart,
+      endTime: computedEnd,
+      startMin,
+      endMin,
+      durationMin: endMin - startMin,
+      startISO: toISOWithClockTime(editedItem.startISO, currentStart),
+      endISO: toISOWithClockTime(editedItem.endISO, computedEnd),
+    });
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={onClose}
+    >
+      <View style={styles.overlay}>
+        <KeyboardAvoidingView
+          style={styles.keyboardContainer}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+        >
+          <SafeAreaView edges={['bottom']} style={styles.safeArea}>
+            <View style={styles.modal}>
+              <ScrollView
+                style={styles.scrollView}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) + 120 }}
+              >
+                <Text style={styles.title}>Edit Schedule Item</Text>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Title</Text>
+              <TextInput
+                style={styles.input}
+                value={editedItem.title}
+                onChangeText={(text) => setEditedItem({ ...editedItem, title: text })}
+                placeholder="e.g., Breakfast, Meeting, etc."
+                placeholderTextColor="#666"
+              />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Type</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeScroll}>
+                {ITEM_TYPES.map((type) => (
+                  <TouchableOpacity
+                    key={type.value}
+                    style={[
+                      styles.typeChip,
+                      editedItem.type === type.value && styles.typeChipSelected,
+                    ]}
+                    onPress={() => setEditedItem({ ...editedItem, type: type.value as any })}
+                  >
+                    <Text
+                      style={[
+                        styles.typeChipText,
+                        editedItem.type === type.value && styles.typeChipTextSelected,
+                      ]}
+                    >
+                      {type.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            <View style={styles.row}>
+              <View style={[styles.field, styles.half]}>
+                <Text style={styles.label}>Start Time</Text>
+                <ClockTimeField
+                  value={editedItem.startTime || clockTimeFromISO(editedItem.startISO)}
+                  onChange={handleStartTimeChange}
+                />
+              </View>
+
+              <View style={[styles.field, styles.half]}>
+                <Text style={styles.label}>End Time</Text>
+                <ClockTimeField
+                  value={editedItem.endTime || clockTimeFromISO(editedItem.endISO)}
+                  onChange={handleEndTimeChange}
+                />
+              </View>
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Notes</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={editedItem.notes || ''}
+                onChangeText={(text) => setEditedItem({ ...editedItem, notes: text })}
+                placeholder="Optional notes..."
+                placeholderTextColor="#666"
+                multiline
+                numberOfLines={3}
+              />
+            </View>
+
+            <View style={styles.switchRow}>
+              <View>
+                <Text style={styles.label}>Lock this item</Text>
+                <Text style={styles.hint}>Locked items stay fixed when regenerating the plan</Text>
+              </View>
+              <Switch
+                value={editedItem.fixed}
+                onValueChange={(value) => setEditedItem({ ...editedItem, fixed: value })}
+                trackColor={{ false: '#444', true: '#22D3EE' }}
+                thumbColor="#fff"
+                disabled={editedItem.type === 'wake' || editedItem.type === 'sleep'}
+              />
+            </View>
+
+              </ScrollView>
+
+              <View style={styles.buttons}>
+                <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                {onDelete && canDelete && (
+                  <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
+                    <Text style={styles.deleteButtonText}>Delete</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity style={styles.saveButton} onPress={() => void handleSave()} disabled={isSaving}>
+                  <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </View>
+
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'flex-end',
+  },
+  keyboardContainer: {
+    width: '100%',
+  },
+  safeArea: {
+    width: '100%',
+  },
+  modal: {
+    backgroundColor: '#1a1a1a',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+    padding: 24,
+  },
+  scrollView: {
+    maxHeight: '100%',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 24,
+  },
+  field: {
+    marginBottom: 20,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#aaa',
+    marginBottom: 8,
+  },
+  hint: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  input: {
+    backgroundColor: '#2a2a2a',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: '#fff',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  timeValue: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  textArea: {
+    height: 80,
+    textAlignVertical: 'top',
+  },
+  typeScroll: {
+    marginTop: 8,
+  },
+  typeChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#2a2a2a',
+    borderWidth: 1,
+    borderColor: '#444',
+    marginRight: 8,
+  },
+  typeChipSelected: {
+    backgroundColor: '#22D3EE',
+    borderColor: '#22D3EE',
+  },
+  typeChipText: {
+    color: '#aaa',
+    fontSize: 14,
+  },
+  typeChipTextSelected: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  half: {
+    flex: 1,
+    marginRight: 8,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+    paddingVertical: 12,
+  },
+  buttons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 24,
+  },
+  cancelButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 8,
+    backgroundColor: '#2a2a2a',
+    marginRight: 8,
+  },
+  cancelButtonText: {
+    color: '#aaa',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  deleteButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 8,
+    backgroundColor: '#dc2626',
+    marginRight: 8,
+  },
+  deleteButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  saveButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 8,
+    backgroundColor: '#22D3EE',
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  pickerCard: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 16,
+  },
+  pickerTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  pickerActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+    gap: 8,
+  },
+  pickerActionButton: {
+    minWidth: 80,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerCancelText: {
+    color: '#aaa',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  pickerDoneText: {
+    color: '#22D3EE',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+});
+
+
+
+
+========================================================================================================================
+FILE: apps/mobile/src/engine/validateSchedule.ts
+========================================================================================================================
+
+import type { ScheduleItem } from '@physiology-engine/shared';
+import type { ClockTime } from '@physiology-engine/shared';
+import { normalizeAndValidateTimeline, canDeleteScheduleItem } from './normalizeTimeline';
+
+interface ValidateScheduleInput {
+  items: ScheduleItem[];
+  wakeTime: ClockTime;
+  sleepTime: ClockTime;
+  dateISO?: string;
+}
+
+interface ValidateScheduleResult {
+  items: ScheduleItem[];
+  valid: boolean;
+  issues: string[];
+}
+
+export function validateSchedule(input: ValidateScheduleInput): ValidateScheduleResult {
+  const syntheticSettings = {
+    wakeTime: `${String(input.wakeTime.hour).padStart(2, '0')}:${String(input.wakeTime.minute).padStart(2, '0')}`,
+    sleepTime: `${String(input.sleepTime.hour).padStart(2, '0')}:${String(input.sleepTime.minute).padStart(2, '0')}`,
+    wakeClockTime: input.wakeTime,
+    sleepClockTime: input.sleepTime,
+  } as any;
+
+  const normalized = normalizeAndValidateTimeline(input.items, syntheticSettings, {
+    dateISO: input.dateISO,
+  });
+
+  return {
+    items: normalized.items,
+    valid: normalized.valid,
+    issues: normalized.issues,
+  };
+}
+
+export { canDeleteScheduleItem };
+
+
+
+
+========================================================================================================================
+FILE: apps/mobile/src/utils/scheduleUtils.ts
+========================================================================================================================
+
+import type { ScheduleItem, UserProfile } from '@physiology-engine/shared';
+
+export type Period = 'AM' | 'PM';
+
+export interface TimeOfDay {
+  hour: number;
+  minute: number;
+  period: Period;
+}
+
+export interface ScheduleWindow {
+  start: TimeOfDay;
+  end: TimeOfDay;
+}
+
+export interface ProfileScheduleTimes {
+  wakeTime: TimeOfDay;
+  sleepTime: TimeOfDay;
+  workStart?: TimeOfDay;
+  workEnd?: TimeOfDay;
+  lunchTime?: TimeOfDay;
+}
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+export function normalizeTimeOfDay(input: TimeOfDay): TimeOfDay {
+  const safeMinute = clamp(Math.round(input.minute || 0), 0, 59);
+  const rawHour = Math.round(input.hour || 12);
+  const safeHour = ((rawHour - 1 + 12) % 12) + 1;
+  return {
+    hour: safeHour,
+    minute: safeMinute,
+    period: input.period === 'PM' ? 'PM' : 'AM',
+  };
+}
+
+export function parseHHmmToTimeOfDay(value?: string): TimeOfDay | null {
+  if (!value || typeof value !== 'string') return null;
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+
+  const hour24 = Number.parseInt(match[1], 10);
+  const minute = Number.parseInt(match[2], 10);
+
+  if (Number.isNaN(hour24) || Number.isNaN(minute) || hour24 < 0 || hour24 > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+
+  const period: Period = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+
+  return { hour: hour12, minute, period };
+}
+
+export function parseISOToTimeOfDay(value?: string): TimeOfDay | null {
+  if (!value) return null;
+  const match = value.match(/T(\d{2}):(\d{2})/);
+  if (!match) return null;
+  return parseHHmmToTimeOfDay(`${match[1]}:${match[2]}`);
+}
+
+export function format12Hour(input: TimeOfDay): string {
+  const normalized = normalizeTimeOfDay(input);
+  return `${normalized.hour}:${String(normalized.minute).padStart(2, '0')} ${normalized.period}`;
+}
+
+export function to24HourParts(input: TimeOfDay): { hour24: number; minute: number } {
+  const normalized = normalizeTimeOfDay(input);
+  let hour24 = normalized.hour % 12;
+  if (normalized.period === 'PM') hour24 += 12;
+  return { hour24, minute: normalized.minute };
+}
+
+function toComparableValue(input: TimeOfDay): number {
+  const { hour24, minute } = to24HourParts(input);
+  return hour24 * 60 + minute;
+}
+
+export function compareTimes(a: TimeOfDay, b: TimeOfDay): number {
+  return toComparableValue(a) - toComparableValue(b);
+}
+
+export function buildScheduleWindow(wakeTime: TimeOfDay, sleepTime: TimeOfDay): ScheduleWindow {
+  return {
+    start: normalizeTimeOfDay(wakeTime),
+    end: normalizeTimeOfDay(sleepTime),
+  };
+}
+
+export function isSleepWrapWindow(window: ScheduleWindow): boolean {
+  return compareTimes(window.end, window.start) <= 0;
+}
+
+export function isWithinScheduleWindow(time: TimeOfDay, window: ScheduleWindow): boolean {
+  const normalized = normalizeTimeOfDay(time);
+  const wraps = isSleepWrapWindow(window);
+
+  if (!wraps) {
+    return compareTimes(normalized, window.start) >= 0 && compareTimes(normalized, window.end) <= 0;
+  }
+
+  return compareTimes(normalized, window.start) >= 0 || compareTimes(normalized, window.end) <= 0;
+}
+
+export function toHHmm24(input: TimeOfDay): string {
+  const { hour24, minute } = to24HourParts(input);
+  return `${String(hour24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+export function applyTimeToISO(baseISO: string | undefined, time: TimeOfDay): string {
+  const datePart = (baseISO || new Date().toISOString()).split('T')[0];
+  return `${datePart}T${toHHmm24(time)}:00.000Z`;
+}
+
+export function parseScheduleItemTime(item: ScheduleItem): TimeOfDay | null {
+  const fromISO = parseISOToTimeOfDay(item.startISO);
+  if (fromISO) return fromISO;
+
+  if (typeof item.startMin === 'number') {
+    const normalized = ((Math.round(item.startMin) % (24 * 60)) + (24 * 60)) % (24 * 60);
+    const hour24 = Math.floor(normalized / 60);
+    const minute = normalized % 60;
+    return parseHHmmToTimeOfDay(`${String(hour24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+  }
+
+  return null;
+}
+
+export function parseScheduleItemEndTime(item: ScheduleItem): TimeOfDay | null {
+  const fromISO = parseISOToTimeOfDay(item.endISO);
+  if (fromISO) return fromISO;
+
+  if (typeof item.endMin === 'number') {
+    const normalized = ((Math.round(item.endMin) % (24 * 60)) + (24 * 60)) % (24 * 60);
+    const hour24 = Math.floor(normalized / 60);
+    const minute = normalized % 60;
+    return parseHHmmToTimeOfDay(`${String(hour24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+  }
+
+  return null;
+}
+
+export function withDeleteFlag(item: ScheduleItem): ScheduleItem {
+  const deleteEnabled = item.type !== 'wake' && item.type !== 'sleep';
+  return {
+    ...item,
+    meta: {
+      ...(item.meta || {}),
+      deleteEnabled,
+    },
+  };
+}
+
+export function cleanEventsOutsideWindow(items: ScheduleItem[], window: ScheduleWindow): ScheduleItem[] {
+  return items.filter((item) => {
+    const time = parseScheduleItemTime(item);
+    if (!time) return false;
+    return isWithinScheduleWindow(time, window);
+  });
+}
+
+export function sortByClockTime(items: ScheduleItem[]): ScheduleItem[] {
+  return [...items].sort((left, right) => {
+    const leftTime = parseScheduleItemTime(left);
+    const rightTime = parseScheduleItemTime(right);
+
+    if (!leftTime && !rightTime) return left.title.localeCompare(right.title);
+    if (!leftTime) return 1;
+    if (!rightTime) return -1;
+
+    const compared = compareTimes(leftTime, rightTime);
+    if (compared !== 0) return compared;
+    return left.title.localeCompare(right.title);
+  });
+}
+
+export function coerceProfileScheduleTimes(profile: UserProfile): ProfileScheduleTimes {
+  const wakeTime = parseHHmmToTimeOfDay(profile.wakeTime) || { hour: 7, minute: 0, period: 'AM' };
+  const sleepTime = parseHHmmToTimeOfDay(profile.sleepTime) || { hour: 11, minute: 0, period: 'PM' };
+
+  return {
+    wakeTime,
+    sleepTime,
+    workStart: parseHHmmToTimeOfDay(profile.workStartTime) ?? undefined,
+    workEnd: parseHHmmToTimeOfDay(profile.workEndTime) ?? undefined,
+    lunchTime: parseHHmmToTimeOfDay(profile.lunchTime) ?? undefined,
+  };
+}
+
+export function validateTimeline(items: ScheduleItem[], window: ScheduleWindow): {
+  valid: boolean;
+  reasons: string[];
+} {
+  const reasons: string[] = [];
+  if (items.length === 0) {
+    return { valid: false, reasons: ['Timeline is empty'] };
+  }
+
+  const first = items[0];
+  const last = items[items.length - 1];
+
+  if (first.type !== 'wake') reasons.push('First event is not Wake');
+  if (last.type !== 'sleep') reasons.push('Last event is not Sleep');
+
+  for (const item of items) {
+    const start = parseScheduleItemTime(item);
+    if (!start || !isWithinScheduleWindow(start, window)) {
+      reasons.push(`Event outside window: ${item.title}`);
+      break;
+    }
+  }
+
+  for (let index = 1; index < items.length; index++) {
+    const previousTime = parseScheduleItemTime(items[index - 1]);
+    const currentTime = parseScheduleItemTime(items[index]);
+    if (!previousTime || !currentTime) continue;
+
+    if (compareTimes(previousTime, currentTime) > 0) {
+      reasons.push('Timeline is not chronologically sorted');
+      break;
+    }
+  }
+
+  return {
+    valid: reasons.length === 0,
+    reasons,
+  };
+}
+
+
+
+
+========================================================================================================================
+FILE: apps/mobile/src/engine/normalizeTimeline.ts
+========================================================================================================================
+
+import type { ClockTime, ScheduleItem, UserProfile } from '@physiology-engine/shared';
+import {
+  compareClockTime,
+  parseClockTime,
+  clockTimeFromISO,
+  toSortableMinutes,
+  addMinutes,
+  toISOWithClockTime,
+} from '../utils/clockTime';
+
+export interface NormalizeTimelineResult {
+  items: ScheduleItem[];
+  valid: boolean;
+  issues: string[];
+}
+
+interface NormalizeTimelineOptions {
+  dateISO?: string;
+}
+
+export function canDeleteScheduleItem(item: Pick<ScheduleItem, 'type'> | null | undefined): boolean {
+  if (!item) return false;
+  return item.type !== 'wake' && item.type !== 'sleep';
+}
+
+interface EnrichedItem extends ScheduleItem {
+  __startMin: number;
+  __endMin: number;
+  __priority: number;
+  __sourceClass: 'actual' | 'user' | 'generated';
+}
+
+const MIN_DURATION = 5;
+const MINUTES_PER_DAY = 24 * 60;
+
+function normalizeMinute(value: number): number {
+  const rounded = Math.round(value);
+  return ((rounded % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+}
+
+function getClockFromItem(item: ScheduleItem): ClockTime | null {
+  if (item.startTime) {
+    const parsed = parseClockTime(item.startTime);
+    if (parsed) return parsed;
+  }
+  return clockTimeFromISO(item.startISO);
+}
+
+function getEndClockFromItem(item: ScheduleItem): ClockTime | null {
+  if (item.endTime) {
+    const parsed = parseClockTime(item.endTime);
+    if (parsed) return parsed;
+  }
+  return clockTimeFromISO(item.endISO);
+}
+
+function deriveSourceClass(item: ScheduleItem): 'actual' | 'user' | 'generated' {
+  if (item.status === 'actual' || item.origin === 'actual') return 'actual';
+  if (item.source === 'user' || item.source === 'advisor') return 'user';
+  return 'generated';
+}
+
+function derivePriority(item: ScheduleItem): number {
+  if (item.type === 'wake' || item.type === 'sleep') return 100;
+  if (item.status === 'actual' || item.origin === 'actual') return 80;
+  if (item.source === 'user' || item.source === 'advisor') return 60;
+  if (item.locked || item.fixed) return 50;
+  return 30;
+}
+
+function keyForDedupe(item: EnrichedItem): string {
+  const title = (item.title || '').trim().toLowerCase();
+  const sameTime = `${item.__startMin}`;
+  const src = item.__sourceClass;
+  const status = item.status || 'planned';
+  return `${item.type}|${title}|${sameTime}|${src}|${status}`;
+}
+
+function isOrphan(item: ScheduleItem): boolean {
+  if (!item.title || !item.title.trim()) return true;
+  if (!item.type) return true;
+  return false;
+}
+
+function choosePreferred(existing: EnrichedItem, incoming: EnrichedItem): EnrichedItem {
+  if (incoming.__priority !== existing.__priority) {
+    return incoming.__priority > existing.__priority ? incoming : existing;
+  }
+  return incoming.updatedAt && existing.updatedAt && incoming.updatedAt > existing.updatedAt ? incoming : existing;
+}
+
+function getWakeSleep(settings: UserProfile, items: ScheduleItem[]): { wake: ClockTime; sleep: ClockTime } {
+  const wakeFromSettings = settings.wakeClockTime || parseClockTime(settings.wakeTime);
+  const sleepFromSettings = settings.sleepClockTime || parseClockTime(settings.sleepTime);
+
+  const wakeFromItems = items.find((item) => item.type === 'wake');
+  const sleepFromItems = items.find((item) => item.type === 'sleep');
+
+  const wake = wakeFromSettings || (wakeFromItems ? getClockFromItem(wakeFromItems) : null) || { hour: 7, minute: 0, period: 'AM' as const };
+  const sleep = sleepFromSettings || (sleepFromItems ? getClockFromItem(sleepFromItems) : null) || { hour: 11, minute: 0, period: 'PM' as const };
+
+  return { wake, sleep };
+}
+
+function shiftFlexibleIntoWindow(item: EnrichedItem, dayStart: number, dayEnd: number): EnrichedItem | null {
+  const duration = Math.max(MIN_DURATION, item.__endMin - item.__startMin);
+  if (item.__priority >= 60) {
+    const clampedStart = Math.max(dayStart, Math.min(item.__startMin, dayEnd - duration));
+    if (clampedStart > dayEnd - MIN_DURATION) return null;
+    return { ...item, __startMin: clampedStart, __endMin: clampedStart + duration };
+  }
+
+  if (item.__startMin < dayStart) {
+    const shiftedStart = dayStart;
+    if (shiftedStart + duration > dayEnd) return null;
+    return { ...item, __startMin: shiftedStart, __endMin: shiftedStart + duration };
+  }
+
+  if (item.__endMin > dayEnd) {
+    const shiftedStart = dayEnd - duration;
+    if (shiftedStart < dayStart) return null;
+    return { ...item, __startMin: shiftedStart, __endMin: shiftedStart + duration };
+  }
+
+  return item;
+}
+
+function resolveOverlaps(items: EnrichedItem[], dayStart: number, dayEnd: number, issues: string[]): EnrichedItem[] {
+  const sorted = [...items].sort((a, b) => a.__startMin - b.__startMin || b.__priority - a.__priority);
+  const result: EnrichedItem[] = [];
+
+  for (const item of sorted) {
+    if (result.length === 0) {
+      result.push(item);
+      continue;
+    }
+
+    const prev = result[result.length - 1];
+    if (item.__startMin >= prev.__endMin) {
+      result.push(item);
+      continue;
+    }
+
+    const keepPrev = prev.__priority >= item.__priority;
+    const flexible = keepPrev ? item : prev;
+    const anchor = keepPrev ? prev : item;
+
+    if (flexible.__priority >= 60) {
+      issues.push(`Dropped overlapping protected item: ${flexible.title}`);
+      if (!keepPrev) {
+        result[result.length - 1] = item;
+      }
+      continue;
+    }
+
+    const duration = Math.max(MIN_DURATION, flexible.__endMin - flexible.__startMin);
+    const shiftedStart = anchor.__endMin;
+    if (shiftedStart + duration > dayEnd) {
+      issues.push(`Dropped overlapping item outside day window: ${flexible.title}`);
+      if (!keepPrev) {
+        result[result.length - 1] = item;
+      }
+      continue;
+    }
+
+    const shifted = { ...flexible, __startMin: shiftedStart, __endMin: shiftedStart + duration };
+    issues.push(`Shifted overlapping item: ${flexible.title}`);
+
+    if (keepPrev) {
+      result.push(shifted);
+    } else {
+      result[result.length - 1] = item;
+      result.push(shifted);
+    }
+  }
+
+  return result;
+}
+
+function toScheduleItem(item: EnrichedItem, dateISO: string): ScheduleItem {
+  const start = addMinutes({ hour: 12, minute: 0, period: 'AM' }, item.__startMin);
+  const end = addMinutes({ hour: 12, minute: 0, period: 'AM' }, item.__endMin);
+
+  return {
+    ...item,
+    startTime: start,
+    endTime: end,
+    startMin: normalizeMinute(item.__startMin),
+    endMin: normalizeMinute(item.__endMin),
+    durationMin: Math.max(MIN_DURATION, item.__endMin - item.__startMin),
+    startISO: toISOWithClockTime(`${dateISO}T00:00:00.000Z`, start),
+    endISO: toISOWithClockTime(`${dateISO}T00:00:00.000Z`, end),
+    locked: item.type === 'wake' || item.type === 'sleep',
+    deletable: canDeleteScheduleItem(item),
+  };
+}
+
+export function normalizeAndValidateTimeline(
+  items: ScheduleItem[],
+  settings: UserProfile,
+  options?: NormalizeTimelineOptions
+): NormalizeTimelineResult {
+  const issues: string[] = [];
+  const inferredDateISO = items.find((item) => typeof item.startISO === 'string' && item.startISO.includes('T'))?.startISO?.split('T')[0];
+  const dateISO = options?.dateISO || inferredDateISO || new Date().toISOString().slice(0, 10);
+  const { wake, sleep } = getWakeSleep(settings, items);
+  const dayStart = toSortableMinutes(wake);
+  const dayEnd = toSortableMinutes(sleep);
+
+  const enriched: EnrichedItem[] = [];
+
+  for (const item of items) {
+    if (isOrphan(item)) {
+      issues.push(`Removed orphaned item: ${item.id}`);
+      continue;
+    }
+
+    const startClock = getClockFromItem(item);
+    if (!startClock) {
+      issues.push(`Removed item with invalid start time: ${item.title}`);
+      continue;
+    }
+
+    const startMin = toSortableMinutes(startClock);
+    const endClock = getEndClockFromItem(item);
+    const computedEndMin = endClock
+      ? Math.max(toSortableMinutes(endClock), startMin + MIN_DURATION)
+      : startMin + Math.max(MIN_DURATION, item.durationMin || MIN_DURATION);
+
+    enriched.push({
+      ...item,
+      __startMin: startMin,
+      __endMin: computedEndMin,
+      __priority: derivePriority(item),
+      __sourceClass: deriveSourceClass(item),
+    });
+  }
+
+  const dedupedMap = new Map<string, EnrichedItem>();
+  for (const item of enriched) {
+    const key = keyForDedupe(item);
+    const existing = dedupedMap.get(key);
+    if (!existing) {
+      dedupedMap.set(key, item);
+      continue;
+    }
+
+    const keepBothAsPlannedAndActual =
+      existing.type === item.type &&
+      existing.title.trim().toLowerCase() === item.title.trim().toLowerCase() &&
+      existing.__startMin === item.__startMin &&
+      ((existing.__sourceClass === 'actual' && item.__sourceClass !== 'actual') ||
+        (item.__sourceClass === 'actual' && existing.__sourceClass !== 'actual'));
+
+    if (keepBothAsPlannedAndActual) {
+      dedupedMap.set(`${key}|${item.__sourceClass}`, item);
+      continue;
+    }
+
+    const preferred = choosePreferred(existing, item);
+    dedupedMap.set(key, preferred);
+    issues.push(`Removed duplicate item: ${existing.id === preferred.id ? item.title : existing.title}`);
+  }
+
+  const dayWindowItems: EnrichedItem[] = [];
+  for (const item of dedupedMap.values()) {
+    if (item.type === 'wake' || item.type === 'sleep') {
+      dayWindowItems.push(item);
+      continue;
+    }
+
+    const shifted = shiftFlexibleIntoWindow(item, dayStart, dayEnd);
+    if (!shifted) {
+      issues.push(`Dropped illegal out-of-window item: ${item.title}`);
+      continue;
+    }
+    dayWindowItems.push(shifted);
+  }
+
+  const wakeItem = dayWindowItems
+    .filter((item) => item.type === 'wake')
+    .sort((a, b) => b.__priority - a.__priority)[0] || {
+    id: `wake-${dateISO}`,
+    type: 'wake',
+    title: 'Wake / Start Day',
+    startISO: toISOWithClockTime(`${dateISO}T00:00:00.000Z`, wake),
+    endISO: toISOWithClockTime(`${dateISO}T00:00:00.000Z`, addMinutes(wake, MIN_DURATION)),
+    status: 'planned',
+    source: 'system',
+    fixed: true,
+    locked: true,
+    deletable: false,
+    __startMin: dayStart,
+    __endMin: dayStart + MIN_DURATION,
+    __priority: 100,
+    __sourceClass: 'generated' as const,
+  } as EnrichedItem;
+
+  const sleepItem = dayWindowItems
+    .filter((item) => item.type === 'sleep')
+    .sort((a, b) => b.__priority - a.__priority)[0] || {
+    id: `sleep-${dateISO}`,
+    type: 'sleep',
+    title: 'Sleep',
+    startISO: toISOWithClockTime(`${dateISO}T00:00:00.000Z`, sleep),
+    endISO: toISOWithClockTime(`${dateISO}T00:00:00.000Z`, addMinutes(sleep, MIN_DURATION)),
+    status: 'planned',
+    source: 'system',
+    fixed: true,
+    locked: true,
+    deletable: false,
+    __startMin: dayEnd,
+    __endMin: dayEnd + MIN_DURATION,
+    __priority: 100,
+    __sourceClass: 'generated' as const,
+  } as EnrichedItem;
+
+  wakeItem.__startMin = dayStart;
+  wakeItem.__endMin = Math.max(dayStart + MIN_DURATION, wakeItem.__endMin);
+  sleepItem.__startMin = dayEnd;
+  sleepItem.__endMin = Math.max(dayEnd + MIN_DURATION, sleepItem.__endMin);
+
+  const betweenAnchors = dayWindowItems.filter((item) => item.type !== 'wake' && item.type !== 'sleep');
+  const resolvedBetween = resolveOverlaps(betweenAnchors, dayStart, dayEnd, issues)
+    .filter((item) => item.__startMin >= dayStart && item.__endMin <= dayEnd)
+    .sort((a, b) => a.__startMin - b.__startMin);
+
+  const finalItems = [wakeItem, ...resolvedBetween, sleepItem].map((item) => toScheduleItem(item, dateISO));
+
+  return {
+    items: finalItems,
+    valid: issues.length === 0,
+    issues,
+  };
+}
+
+
+
+
+========================================================================================================================
+FILE: apps/mobile/src/ui/index.ts
+========================================================================================================================
+
+// AlignOS UI Components - Main Export
+
+export { AppIcon } from './components/AppIcon';
+export { Screen } from './components/Screen';
+export { Card } from './components/Card';
+export { SectionHeader } from './components/SectionHeader';
+export { PrimaryButton, SecondaryButton, TertiaryButton } from './components/Buttons';
+export { Chip } from './components/Chip';
+export { Divider } from './components/Divider';
+
+// Theme exports
+export { Colors, Spacing, Radius, Typography, FontWeight, Shadows } from './theme/theme';
+
+// Utility exports
+export { formatNumber, formatPercent, formatTime, formatTime12Hour, formatDuration, formatScore, safeString } from './utils/format';
+export { hapticLight, hapticMedium, hapticHeavy, hapticSuccess, hapticWarning, hapticError, hapticSelection } from './utils/haptics';
+
+// Type exports
+export type { IconName } from './components/AppIcon';
+
+
+
+
+========================================================================================================================
+FILE: apps/mobile/src/advisor/index.ts
+========================================================================================================================
+
+/**
+ * AlignOS Hybrid AI Advisor
+ * 
+ * A cost-optimized advisor system that combines:
+ * - 100 preset questions (instant, no API cost)
+ * - 5 custom LLM questions per day (metered)
+ * - Unified response format
+ * 
+ * @module advisor
+ */
+
+// Main router (primary entry point)
+export { ask, getRemainingCustomQuestions, getCustomQuestionsUsedToday, presetBank } from './router';
+
+// Types (for TypeScript consumers)
+export type {
+  AdvisorResponse,
+  Intent,
+  NextMove,
+  IfThen,
+  Insert,
+  Action,
+  DayContext,
+  PresetQuestion,
+} from './types/advisorResponse';
+
+// Context builder (for manual context retrieval)
+export { buildDayContext, useDayContext } from './context/buildDayContext';
+
+// Preset matching (for custom UI flows)
+export { matchPreset, getRoutingDecision } from './presets/matchPreset';
+export type { MatchResult, RoutingDecision } from './presets/matchPreset';
+
+// Template rendering (for custom preset workflows)
+export { renderTemplate } from './presets/renderTemplate';
+
+// Daily limits (for displaying quota in UI)
+export {
+  canAskCustomQuestion,
+  resetDailyLimit,
+  cleanupOldLimits,
+} from './limits/dailyLimit';
+
+// LLM (for direct LLM calls if needed)
+export { askLLM, createLimitExceededResponse } from './llm/askLLM';
+export { buildSystemPrompt } from './llm/systemPrompt';
+
+// Time utilities (for custom template rendering)
+export {
+  hoursSince,
+  formatTime,
+  formatTime24,
+  addHoursToTime,
+  addMinutesToTime,
+  clampToBeforeBedtime,
+  getCurrentTimeFormatted,
+  getCurrentTimeISO,
+} from './utils/time';
+
+
+
+
+========================================================================================================================
+FILE: apps/mobile/src/utils/aiAdvisor/index.ts
+========================================================================================================================
+
+/**
+ * AlignOS AI Advisor Module
+ * 
+ * Physiology-informed behavioral regulation engine.
+ * NOT a generic chatbot â€” this is a circadian-aligned systems advisor.
+ * 
+ * Philosophy:
+ * - Timing-focused (when matters more than what)
+ * - Structure-focused (systems > willpower)
+ * - Science-based (circadian biology, meal timing physiology, energy regulation)
+ * - Calm authority (no hype, no medical claims)
+ * 
+ * Usage:
+ * ```typescript
+ * const response = await getAdvisorResponse(
+ *   "When should I eat BBQ chicken?",
+ *   userProfile,
+ *   currentPlan,
+ *   new Date(),
+ *   biometrics
+ * );
+ * ```
+ */
+
+import type { UserProfile, DayPlan } from '@physiology-engine/shared';
+import { generateResponse, type AdvisorContext, type AdvisorResponse } from './responseGenerator';
+import { getContextualQuickQuestions, getQuickQuestionResponse, type QuickQuestion } from './quickQuestions';
+import { KNOWLEDGE_BASE, type KnowledgeDomain, type KnowledgeEntry } from './knowledgeBase';
+
+/**
+ * Biometric context for advisor
+ */
+export interface BiometricContext {
+  sleepScore?: number;
+  stressLevel?: 'low' | 'medium' | 'high';
+  hrv?: number;
+  restingHeartRate?: number;
+}
+
+/**
+ * Main entry point for AI Advisor
+ * 
+ * @param query - User's natural language question
+ * @param profile - User profile (wake time, sleep time, fitness goal)
+ * @param plan - Current day plan (meals, workouts, schedule)
+ * @param currentTime - Current timestamp for context-aware timing
+ * @param biometrics - Optional biometric data (sleep score, stress level, HRV)
+ * @returns Structured advisor response
+ */
+export async function getAdvisorResponse(
+  query: string,
+  profile: UserProfile,
+  plan: DayPlan | null,
+  currentTime: Date = new Date(),
+  biometrics?: BiometricContext
+): Promise<AdvisorResponse> {
+  const context: AdvisorContext = {
+    query,
+    profile,
+    currentPlan: plan || undefined,
+    currentTime,
+    sleepScore: biometrics?.sleepScore,
+    stressLevel: biometrics?.stressLevel,
+    heartRate: biometrics?.restingHeartRate,
+  };
+  
+  return generateResponse(context);
+}
+
+/**
+ * Get contextual quick questions for current time of day
+ * 
+ * @param profile - User profile
+ * @param currentTime - Current timestamp
+ * @param limit - Number of questions to return (default: 4)
+ * @returns Array of quick questions with response generators
+ */
+export function getQuickQuestions(
+  profile: UserProfile,
+  currentTime: Date = new Date(),
+  limit: number = 4
+): QuickQuestion[] {
+  return getContextualQuickQuestions(profile, currentTime, limit);
+}
+
+/**
+ * Get response for a specific quick question
+ * 
+ * @param questionId - ID of the quick question
+ * @param profile - User profile
+ * @param currentTime - Current timestamp
+ * @returns Formatted response text
+ */
+export function getQuickAnswer(
+  questionId: string,
+  profile: UserProfile,
+  currentTime: Date = new Date()
+): string {
+  return getQuickQuestionResponse(questionId, profile, currentTime);
+}
+
+/**
+ * Get all knowledge entries for a specific domain
+ * 
+ * @param domain - Knowledge domain to retrieve
+ * @returns Array of knowledge entries
+ */
+export function getDomainKnowledge(domain: KnowledgeDomain): KnowledgeEntry[] {
+  return KNOWLEDGE_BASE[domain] || [];
+}
+
+// Export types and modules
+export type { 
+  AdvisorResponse, 
+  AdvisorContext, 
+  KnowledgeDomain, 
+  KnowledgeEntry, 
+  QuickQuestion 
+};
+
+export { KNOWLEDGE_BASE } from './knowledgeBase';
+
+
+

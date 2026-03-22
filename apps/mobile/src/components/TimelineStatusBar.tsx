@@ -5,9 +5,15 @@
 
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useAdaptivePlanStore } from '../store/adaptivePlanStore';
-import { haptics } from '../utils/haptics';
+import { hapticLight } from '../ui/utils/haptics';
+import { AppIcon } from '../ui/components/AppIcon';
+import { Colors } from '../ui/theme/colors';
+import { Spacing } from '../ui/theme/spacing';
+import { Radius } from '../ui/theme/radius';
+import { Typography, FontWeight } from '../ui/theme/typography';
+import { Shadows } from '../ui/theme/shadows';
+import { formatNumber } from '../ui/utils/format';
 
 export default function TimelineStatusBar() {
   const { 
@@ -22,119 +28,130 @@ export default function TimelineStatusBar() {
     return null; // Don't show until user starts completing items
   }
 
-  const status = isRunningBehind ? 'behind' : 'on-track';
-  const statusEmoji = isRunningBehind ? '⚠️' : '✓';
   const statusText = isRunningBehind 
-    ? `${Math.round(minutesBehind)}min behind` 
+    ? `${formatNumber(minutesBehind, 0)}min behind` 
     : 'On schedule';
-  const statusColor = (isRunningBehind ? ['#ff6b6b', '#c92a2a'] : ['#00ff88', '#14967F']) as [string, string];
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={statusColor}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.gradient}
-      >
-        <View style={styles.content}>
-          <View style={styles.statusSection}>
-            <Text style={styles.statusEmoji}>{statusEmoji}</Text>
-            <View>
-              <Text style={styles.statusText}>{statusText}</Text>
-              <Text style={styles.completedCount}>
-                {completedToday.length} completed today
-              </Text>
-            </View>
-          </View>
-
-          {isRunningBehind && adaptiveMode && (
-            <View style={styles.adaptiveIndicator}>
-              <Text style={styles.adaptiveText}>🔄 Auto-adjusting</Text>
-            </View>
-          )}
-
-          <TouchableOpacity
-            style={styles.toggleButton}
-            onPress={() => {
-              haptics.light();
-              toggleAdaptiveMode();
-            }}
-          >
-            <Text style={styles.toggleText}>
-              {adaptiveMode ? '🤖 ON' : 'OFF'}
+    <View style={[
+      styles.container,
+      isRunningBehind && styles.containerBehind
+    ]}>
+      <View style={styles.content}>
+        <View style={styles.statusSection}>
+          <AppIcon 
+            name={isRunningBehind ? 'clock' : 'check'} 
+            size={18} 
+            color={isRunningBehind ? Colors.Warning : Colors.Success} 
+          />
+          <View style={styles.statusTexts}>
+            <Text style={styles.statusText}>{statusText}</Text>
+            <Text style={styles.completedCount}>
+              {completedToday.length} completed today
             </Text>
-          </TouchableOpacity>
+          </View>
         </View>
-      </LinearGradient>
+
+        {isRunningBehind && adaptiveMode && (
+          <View style={styles.adaptiveIndicator}>
+            <AppIcon name="refresh" size={12} color={Colors.AccentPrimary} />
+            <Text style={styles.adaptiveText}>Auto-adjust</Text>
+          </View>
+        )}
+
+        <TouchableOpacity
+          style={[
+            styles.toggleButton,
+            adaptiveMode && styles.toggleButtonActive
+          ]}
+          onPress={() => {
+            hapticLight();
+            toggleAdaptiveMode();
+          }}
+        >
+          <Text style={[
+            styles.toggleText,
+            adaptiveMode && styles.toggleTextActive
+          ]}>
+            {adaptiveMode ? 'ON' : 'OFF'}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    marginVertical: 8,
-    marginHorizontal: 16,
-    borderRadius: 12,
-    overflow: 'hidden',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    marginVertical: Spacing.sm,
+    marginHorizontal: Spacing.lg,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.SurfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.Border,
+    ...Shadows.sm,
   },
-  gradient: {
-    padding: 14,
+  containerBehind: {
+    borderColor: Colors.Warning,
+    backgroundColor: `${Colors.Warning}0F`, // 6% opacity
   },
   content: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    padding: Spacing.md,
   },
   statusSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    flex: 1,
+    gap: Spacing.sm,
+  },
+  statusTexts: {
     flex: 1,
   },
-  statusEmoji: {
-    fontSize: 24,
-  },
   statusText: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#000',
-    letterSpacing: 0.3,
+    fontSize: Typography.BodySmall,
+    fontWeight: FontWeight.Semi,
+    color: Colors.TextPrimary,
   },
   completedCount: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: 'rgba(0, 0, 0, 0.7)',
+    fontSize: Typography.Micro,
+    color: Colors.TextMuted,
     marginTop: 2,
+    letterSpacing: 0.3,
   },
   adaptiveIndicator: {
-    backgroundColor: 'rgba(0, 0, 0, 0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    marginRight: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginRight: Spacing.sm,
   },
   adaptiveText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#000',
+    fontSize: Typography.Micro,
+    color: Colors.AccentPrimary,
+    fontWeight: FontWeight.Medium,
+    letterSpacing: 0.3,
   },
   toggleButton: {
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    minWidth: 50,
-    alignItems: 'center',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.Surface,
+    borderWidth: 1,
+    borderColor: Colors.Border,
+  },
+  toggleButtonActive: {
+    backgroundColor: `${Colors.AccentPrimary}1A`, // 10% opacity
+    borderColor: Colors.AccentPrimary,
   },
   toggleText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#000',
+    fontSize: Typography.Micro,
+    fontWeight: FontWeight.Semi,
+    color: Colors.TextSecondary,
+    letterSpacing: 0.5,
+  },
+  toggleTextActive: {
+    color: Colors.AccentPrimary,
   },
 });
