@@ -1,5 +1,6 @@
 {
   "expo": {
+    "icon": "./apps/mobile/assets/icons/ios/icon-1024.png",
     "extra": {
       "eas": {
         "projectId": "a6716d48-dd7e-45ba-9b2f-eec977c39f6b"
@@ -7,6 +8,7 @@
     },
     "ios": {
       "bundleIdentifier": "AlignOS",
+      "icon": "./apps/mobile/assets/icons/ios/icon-1024.png",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }

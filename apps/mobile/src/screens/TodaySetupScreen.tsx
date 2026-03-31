@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { usePlanStore } from '../store/planStore';
 import type { DayState, DayMode, ConstraintBlock, WorkoutEvent, MealEvent, MealType } from '@physiology-engine/shared';
 import { parseTimeString } from '@physiology-engine/shared';
@@ -132,10 +132,12 @@ export default function TodaySetupScreen({ navigation }: any) {
   };
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      contentContainerStyle={[styles.content, { padding: spacing.lg }]}
-    >
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        contentContainerStyle={[styles.content, { padding: spacing.lg, paddingBottom: 120 }]}
+        keyboardShouldPersistTaps="handled"
+      >
       <SectionTitle title="How's Today Looking?" subtitle="Let's structure your day" />
 
       <Card style={{ marginBottom: spacing.xl }}>
@@ -536,7 +538,8 @@ export default function TodaySetupScreen({ navigation }: any) {
       <PrimaryButton onPress={handleStartDay}>
         Generate My Plan
       </PrimaryButton>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

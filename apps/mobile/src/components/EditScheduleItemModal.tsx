@@ -122,6 +122,12 @@ export default function EditScheduleItemModal({ visible, item, onSave, onDelete,
               >
                 <Text style={styles.title}>Edit Schedule Item</Text>
 
+                {(editedItem.meta as any)?.isImported ? (
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={[styles.hint, { color: '#9CA3AF' }]}>Imported from Calendar{(editedItem.meta as any)?.calendarTitle ? ` — ${(editedItem.meta as any).calendarTitle}` : ''}</Text>
+                  </View>
+                ) : null}
+
             <View style={styles.field}>
               <Text style={styles.label}>Title</Text>
               <TextInput
@@ -136,9 +142,9 @@ export default function EditScheduleItemModal({ visible, item, onSave, onDelete,
             <View style={styles.field}>
               <Text style={styles.label}>Type</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeScroll}>
-                {ITEM_TYPES.map((type) => (
+                {ITEM_TYPES.map((type, idx) => (
                   <TouchableOpacity
-                    key={type.value}
+                    key={`${type.value}-${idx}`}
                     style={[
                       styles.typeChip,
                       editedItem.type === type.value && styles.typeChipSelected,

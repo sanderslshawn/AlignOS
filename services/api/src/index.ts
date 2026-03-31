@@ -28,6 +28,7 @@ import {
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, '../data');
+const RESOLVED_DATA_DIR = Array.isArray(DATA_DIR) ? DATA_DIR[0] : DATA_DIR;
 
 // Middleware
 app.use(cors());
@@ -130,6 +131,9 @@ const coerceIsoDates = (input: any): any => {
   return input;
 };
 
+// Helpers
+const paramToString = (p?: string | string[] | null): string => (Array.isArray(p) ? p[0] : p ?? '');
+
 // Request logger
 app.use((req: Request, res: Response, next: NextFunction) => {
   console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
@@ -165,7 +169,7 @@ app.get('/day/:deviceId/today', async (req: Request, res: Response) => {
   try {
     const { deviceId } = req.params;
     const dateKey = new Date().toISOString().split('T')[0];
-    const filePath = path.join(DATA_DIR, `${deviceId}_${dateKey}.json`);
+    const filePath = path.join(DATA_DIR, `${paramToString(deviceId)}_${dateKey}.json`);
     
     try {
       const data = await fs.readFile(filePath, 'utf-8');
@@ -198,7 +202,7 @@ app.get('/day/:deviceId/today', async (req: Request, res: Response) => {
 app.get('/day/:deviceId/:date(\\d{4}-\\d{2}-\\d{2})', async (req: Request, res: Response) => {
   try {
     const { deviceId, date } = req.params;
-    const filePath = path.join(DATA_DIR, `${deviceId}_${date}.json`);
+    const filePath = path.join(DATA_DIR, `${paramToString(deviceId)}_${date}.json`);
 
     try {
       const data = await fs.readFile(filePath, 'utf-8');
@@ -254,7 +258,7 @@ app.get('/day/:deviceId/:date(\\d{4}-\\d{2}-\\d{2})', async (req: Request, res: 
 app.post('/day/:deviceId/:date(\\d{4}-\\d{2}-\\d{2})/timeline', async (req: Request, res: Response) => {
   try {
     const { deviceId, date } = req.params;
-    const filePath = path.join(DATA_DIR, `${deviceId}_${date}.json`);
+    const filePath = path.join(DATA_DIR, `${paramToString(deviceId)}_${date}.json`);
 
     let existing: any;
     try {
@@ -319,7 +323,7 @@ app.get('/day/:deviceId/tomorrow', async (req: Request, res: Response) => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const dateKey = tomorrow.toISOString().split('T')[0];
-    const tomorrowPath = path.join(DATA_DIR, `${deviceId}_${dateKey}.json`);
+    const tomorrowPath = path.join(DATA_DIR, `${paramToString(deviceId)}_${dateKey}.json`);
 
     try {
       const data = await fs.readFile(tomorrowPath, 'utf-8');
@@ -362,7 +366,7 @@ app.get('/day/:deviceId/tomorrow', async (req: Request, res: Response) => {
       });
     } catch {
       const todayKey = new Date().toISOString().split('T')[0];
-      const todayPath = path.join(DATA_DIR, `${deviceId}_${todayKey}.json`);
+      const todayPath = path.join(DATA_DIR, `${paramToString(deviceId)}_${todayKey}.json`);
       let wakeTime = '07:00';
       let sleepTime = '23:00';
 
@@ -410,7 +414,7 @@ app.post('/day/:deviceId/tomorrow/generate', async (req: Request, res: Response)
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const dateKey = tomorrow.toISOString().split('T')[0];
-    const tomorrowPath = path.join(DATA_DIR, `${deviceId}_${dateKey}.json`);
+    const tomorrowPath = path.join(DATA_DIR, `${paramToString(deviceId)}_${dateKey}.json`);
 
     if (preview && Array.isArray(preview.items) && preview.items.length > 0) {
       const normalizedItems = normalizeScheduleItemsForResponse(preview.items);
@@ -427,7 +431,7 @@ app.post('/day/:deviceId/tomorrow/generate', async (req: Request, res: Response)
       return res.json({ success: true, ...persistedPreview });
     }
 
-    const rhythm = await loadRhythmProfile(DATA_DIR, deviceId);
+    const rhythm = await loadRhythmProfile(RESOLVED_DATA_DIR, paramToString(deviceId));
     const wakeTime = rhythm.rollingMedians.wake || profile?.wakeTime || '07:00';
     const sleepTime = rhythm.rollingMedians.sleep || profile?.sleepTime || '23:00';
     const workStartTime = profile?.workStartTime;
@@ -488,7 +492,7 @@ app.post('/day/:deviceId/tomorrow/generate', async (req: Request, res: Response)
 app.get('/day/:deviceId/rhythm', async (req: Request, res: Response) => {
   try {
     const { deviceId } = req.params;
-    const rhythm = await loadRhythmProfile(DATA_DIR, deviceId);
+    const rhythm = await loadRhythmProfile(RESOLVED_DATA_DIR, paramToString(deviceId));
     res.json(rhythm);
   } catch (error) {
     console.error('GET /day/:deviceId/rhythm error:', error);
@@ -503,7 +507,7 @@ app.get('/day/:deviceId/rhythm', async (req: Request, res: Response) => {
 app.post('/day/:deviceId/rhythm/reset', async (req: Request, res: Response) => {
   try {
     const { deviceId } = req.params;
-    const rhythm = await resetRhythmProfile(DATA_DIR, deviceId);
+    const rhythm = await resetRhythmProfile(RESOLVED_DATA_DIR, paramToString(deviceId));
     res.json({ success: true, rhythm });
   } catch (error) {
     console.error('POST /day/:deviceId/rhythm/reset error:', error);
@@ -526,7 +530,7 @@ app.post('/day/:deviceId/state', async (req: Request, res: Response) => {
     const validated = DayStateSchema.parse(normalizedDayState);
     
     const dateKey = validated.dateKey || new Date().toISOString().split('T')[0];
-    const filePath = path.join(DATA_DIR, `${deviceId}_${dateKey}.json`);
+    const filePath = path.join(DATA_DIR, `${paramToString(deviceId)}_${dateKey}.json`);
     
     const persisted: any = {
       ...validated,
@@ -580,7 +584,7 @@ app.post('/day/:deviceId/events', async (req: Request, res: Response) => {
         : [];
     
     const dateKey = new Date().toISOString().split('T')[0];
-    const filePath = path.join(DATA_DIR, `${deviceId}_${dateKey}.json`);
+    const filePath = path.join(RESOLVED_DATA_DIR, `${paramToString(deviceId)}_${dateKey}.json`);
     
     // Load existing state
     let dayState: DayState;
@@ -612,7 +616,7 @@ app.post('/day/:deviceId/events', async (req: Request, res: Response) => {
     
     const output = generatePlan(input);
 
-    const rhythm = await updateRhythmFromEvents(DATA_DIR, deviceId, dayState, profile, incomingEvents);
+    const rhythm = await updateRhythmFromEvents(RESOLVED_DATA_DIR, paramToString(deviceId), dayState, profile, incomingEvents);
     output.scheduleItems = applyRhythmToSchedule(output.scheduleItems, rhythm, profile);
     
     // Update day state with new computed plan
@@ -652,7 +656,7 @@ app.post('/day/:deviceId/recompute', async (req: Request, res: Response) => {
     const { profile, intent, baseItems } = req.body;
     
     const dateKey = new Date().toISOString().split('T')[0];
-    const filePath = path.join(DATA_DIR, `${deviceId}_${dateKey}.json`);
+    const filePath = path.join(DATA_DIR, `${paramToString(deviceId)}_${dateKey}.json`);
     
     // Load existing state
     let dayState: DayState;
@@ -702,7 +706,7 @@ app.post('/day/:deviceId/recompute', async (req: Request, res: Response) => {
     };
     
     const output = generatePlan(input);
-    const rhythm = await loadRhythmProfile(DATA_DIR, deviceId);
+    const rhythm = await loadRhythmProfile(RESOLVED_DATA_DIR, paramToString(deviceId));
     output.scheduleItems = applyRhythmToSchedule(output.scheduleItems, rhythm, profile);
     
     // Update state
@@ -739,12 +743,12 @@ app.get('/day/:deviceId/export/today', async (req: Request, res: Response) => {
   try {
     const { deviceId } = req.params;
     const dateKey = new Date().toISOString().split('T')[0];
-    const filePath = path.join(DATA_DIR, `${deviceId}_${dateKey}.json`);
+    const filePath = path.join(RESOLVED_DATA_DIR, `${paramToString(deviceId)}_${dateKey}.json`);
     
     const data = await fs.readFile(filePath, 'utf-8');
     
     res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', `attachment; filename="${deviceId}_${dateKey}.json"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${paramToString(deviceId)}_${dateKey}.json"`);
     res.send(data);
   } catch (error: any) {
     if (error.code === 'ENOENT') {
@@ -770,7 +774,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`API server listening on port ${PORT}`);
-  console.log(`Data directory: ${DATA_DIR}`);
+  console.log(`Data directory: ${RESOLVED_DATA_DIR}`);
 });
 
 export default app;

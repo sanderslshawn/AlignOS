@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform } from 'react-native';
 import { format } from 'date-fns';
 import { usePlanStore } from '../store/planStore';
 import EnergyForecast, { getForecastSnapshot } from '../components/EnergyForecast';
@@ -304,7 +304,8 @@ export default function InsightsScreen({ navigation }: any) {
   const thinkingAction = recommendationOutput.actions[0]?.id || 'RECOMPUTE_FROM_NOW';
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={{ paddingBottom: spacing['2xl'] }}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={80}>
+      <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={{ paddingBottom: spacing['2xl'] }}>
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
         <SectionTitle title="Insights" subtitle="Why AlignOS is making these decisions" />
         {discovery.shouldShow(1) ? (
@@ -542,5 +543,6 @@ export default function InsightsScreen({ navigation }: any) {
         </Card>
       </View>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }

@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Switch } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Switch, KeyboardAvoidingView, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usePlanStore } from '../store/planStore';
 import type { UserProfile, DayMode, DietFoundation } from '@physiology-engine/shared';
 import { LEARN_ALIGNOS_TOUR_KEY } from '../hooks/useTourProgress';
+import { useTheme } from '@physiology-engine/ui';
 
 export default function OnboardingScreen({ navigation }: any) {
   const { saveProfile } = usePlanStore();
+  const { colors } = useTheme();
   const [step, setStep] = useState(1);
   
   // Form state
@@ -65,29 +67,40 @@ export default function OnboardingScreen({ navigation }: any) {
   const mealPreferences = ['protein-first', 'carb-last', 'balanced'] as const;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        contentContainerStyle={[styles.content, { padding: 20 }]}
+        keyboardShouldPersistTaps="handled"
+      >
       <View style={styles.topLinksRow}>
-        <TouchableOpacity style={styles.helpLink} onPress={() => navigation.navigate('HelpCenter')}>
-          <Text style={styles.helpLinkText}>Open Help Center</Text>
+        <TouchableOpacity
+          style={[styles.helpLink, { borderColor: colors.accentPrimary }]}
+          onPress={() => navigation.navigate('HelpCenter')}
+        >
+          <Text style={[styles.helpLinkText, { color: colors.accentPrimary }]}>Open Help Center</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.helpLink} onPress={() => navigation.navigate('LearnAlignOSTour')}>
-          <Text style={styles.helpLinkText}>Learn AlignOS Tour</Text>
+        <TouchableOpacity
+          style={[styles.helpLink, { borderColor: colors.accentPrimary }]}
+          onPress={() => navigation.navigate('LearnAlignOSTour')}
+        >
+          <Text style={[styles.helpLinkText, { color: colors.accentPrimary }]}>Learn AlignOS Tour</Text>
         </TouchableOpacity>
       </View>
-      <Text style={styles.title}>Setup Your Profile</Text>
-      <Text style={styles.subtitle}>Step {step} of 4</Text>
+      <Text style={[styles.title, { color: colors.accentPrimary }]}>Setup Your Profile</Text>
+      <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Step {step} of 4</Text>
 
       {step === 1 && (
         <View style={styles.stepContainer}>
           <Text style={styles.stepTitle}>Basic Schedule</Text>
           
-          <Text style={styles.label}>Wake Time</Text>
+          <Text style={[styles.label, { color: colors.textPrimary }]}>Wake Time</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.borderSubtle, color: colors.textPrimary }]}
             value={wakeTime}
             onChangeText={setWakeTime}
             placeholder="07:00"
-            placeholderTextColor="#666"
+            placeholderTextColor={colors.textMuted}
           />
 
           <Text style={styles.label}>Sleep Time</Text>
@@ -109,8 +122,8 @@ export default function OnboardingScreen({ navigation }: any) {
             placeholderTextColor="#666"
           />
 
-          <TouchableOpacity style={styles.button} onPress={() => setStep(2)}>
-            <Text style={styles.buttonText}>Next</Text>
+          <TouchableOpacity style={[styles.button, { backgroundColor: colors.accentPrimary }]} onPress={() => setStep(2)}>
+            <Text style={[styles.buttonText, { color: colors.background }]}>Next</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -120,12 +133,12 @@ export default function OnboardingScreen({ navigation }: any) {
           <Text style={styles.stepTitle}>Physiology Basics</Text>
           
           <View style={styles.switchRow}>
-            <Text style={styles.label}>Low Caffeine Tolerance</Text>
+            <Text style={[styles.label, { color: colors.textPrimary }]}>Low Caffeine Tolerance</Text>
             <Switch
               value={caffeineToleranceLow}
               onValueChange={setCaffeineToleranceLow}
-              trackColor={{ false: '#333', true: '#00ff88' }}
-              thumbColor={caffeineToleranceLow ? '#fff' : '#666'}
+              trackColor={{ false: colors.borderSubtle, true: colors.accentPrimary }}
+              thumbColor={caffeineToleranceLow ? colors.background : colors.textMuted}
             />
           </View>
 
@@ -161,10 +174,10 @@ export default function OnboardingScreen({ navigation }: any) {
 
           <View style={styles.buttonRow}>
             <TouchableOpacity style={[styles.button, styles.buttonSecondary]} onPress={() => setStep(1)}>
-              <Text style={styles.buttonText}>Back</Text>
+              <Text style={[styles.buttonText, { color: colors.textPrimary }]}>Back</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.button} onPress={() => setStep(3)}>
-              <Text style={styles.buttonText}>Next</Text>
+            <TouchableOpacity style={[styles.button, { backgroundColor: colors.accentPrimary }]} onPress={() => setStep(3)}>
+              <Text style={[styles.buttonText, { color: colors.background }]}>Next</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -174,15 +187,15 @@ export default function OnboardingScreen({ navigation }: any) {
         <View style={styles.stepContainer}>
           <Text style={styles.stepTitle}>Preferences</Text>
           
-          <Text style={styles.label}>Default Day Mode</Text>
+          <Text style={[styles.label, { color: colors.textPrimary }]}>Default Day Mode</Text>
           <View style={styles.optionsContainer}>
             {dayModes.map((mode) => (
               <TouchableOpacity
                 key={mode}
-                style={[styles.option, dayMode === mode && styles.optionSelected]}
+                style={[styles.option, { backgroundColor: colors.surface }, dayMode === mode && { borderColor: colors.accentPrimary, backgroundColor: colors.surfaceElevated }]}
                 onPress={() => setDayMode(mode)}
               >
-                <Text style={[styles.optionText, dayMode === mode && styles.optionTextSelected]}>
+                <Text style={[styles.optionText, dayMode === mode && { color: colors.accentPrimary }]}>
                   {mode}
                 </Text>
               </TouchableOpacity>
@@ -206,10 +219,10 @@ export default function OnboardingScreen({ navigation }: any) {
 
           <View style={styles.buttonRow}>
             <TouchableOpacity style={[styles.button, styles.buttonSecondary]} onPress={() => setStep(2)}>
-              <Text style={styles.buttonText}>Back</Text>
+              <Text style={[styles.buttonText, { color: colors.textPrimary }]}>Back</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.button} onPress={() => setStep(4)}>
-              <Text style={styles.buttonText}>Next</Text>
+            <TouchableOpacity style={[styles.button, { backgroundColor: colors.accentPrimary }]} onPress={() => setStep(4)}>
+              <Text style={[styles.buttonText, { color: colors.background }]}>Next</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -220,13 +233,13 @@ export default function OnboardingScreen({ navigation }: any) {
           <Text style={styles.stepTitle}>Work & Exercise (Optional)</Text>
           <Text style={styles.hint}>Add your typical schedule so the plan works around it</Text>
           
-          <Text style={styles.label}>Work Start Time</Text>
+          <Text style={[styles.label, { color: colors.textPrimary }]}>Work Start Time</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.borderSubtle, color: colors.textPrimary }]}
             value={workStartTime}
             onChangeText={setWorkStartTime}
             placeholder="09:00 (optional)"
-            placeholderTextColor="#666"
+            placeholderTextColor={colors.textMuted}
           />
 
           <Text style={styles.label}>Work End Time</Text>
@@ -271,15 +284,16 @@ export default function OnboardingScreen({ navigation }: any) {
 
           <View style={styles.buttonRow}>
             <TouchableOpacity style={[styles.button, styles.buttonSecondary]} onPress={() => setStep(3)}>
-              <Text style={styles.buttonText}>Back</Text>
+              <Text style={[styles.buttonText, { color: colors.textPrimary }]}>Back</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.button} onPress={handleComplete}>
-              <Text style={styles.buttonText}>Complete</Text>
+            <TouchableOpacity style={[styles.button, { backgroundColor: colors.accentPrimary }]} onPress={handleComplete}>
+              <Text style={[styles.buttonText, { color: colors.background }]}>Complete</Text>
             </TouchableOpacity>
           </View>
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -292,13 +306,13 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   title: {
-    color: '#00ff88',
+    color: '#22D3EE',
     fontSize: 28,
     fontWeight: '700',
     marginBottom: 8,
   },
   subtitle: {
-    color: '#666',
+    color: '#9CA3AF',
     fontSize: 16,
     marginBottom: 32,
   },
@@ -344,9 +358,9 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   input: {
-    backgroundColor: '#111',
+    backgroundColor: '#111827',
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: '#1F2937',
     borderRadius: 8,
     padding: 12,
     color: '#fff',
@@ -363,27 +377,27 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   option: {
-    backgroundColor: '#111',
+    backgroundColor: '#111827',
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: '#1F2937',
     borderRadius: 8,
     padding: 16,
     alignItems: 'center',
   },
   optionSelected: {
-    borderColor: '#00ff88',
-    backgroundColor: '#001a0f',
+    borderColor: '#22D3EE',
+    backgroundColor: '#151922',
   },
   optionText: {
-    color: '#666',
+    color: '#9CA3AF',
     fontSize: 16,
     fontWeight: '600',
   },
   optionTextSelected: {
-    color: '#00ff88',
+    color: '#22D3EE',
   },
   button: {
-    backgroundColor: '#00ff88',
+    backgroundColor: '#22D3EE',
     borderRadius: 8,
     padding: 16,
     alignItems: 'center',
@@ -391,7 +405,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   buttonSecondary: {
-    backgroundColor: '#333',
+    backgroundColor: '#374151',
     marginRight: 8,
   },
   buttonRow: {

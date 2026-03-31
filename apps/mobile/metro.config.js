@@ -4,6 +4,7 @@ const path = require('path');
 const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, '../..');
 
+/** @type {any} */
 const config = getDefaultConfig(projectRoot);
 
 config.watchFolders = [workspaceRoot];

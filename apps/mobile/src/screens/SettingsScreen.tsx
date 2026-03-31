@@ -52,6 +52,16 @@ interface RhythmProfile {
 export default function SettingsScreen() {
   const navigation = useNavigation();
   const { profile, saveProfile, todayEntries, fullDayPlan, deviceId } = usePlanStore();
+  const {
+    requestCalendarPermission,
+    loadAvailableCalendars,
+    selectedCalendarIds,
+    setSelectedCalendarIds,
+    calendarSyncEnabled,
+    setCalendarSyncEnabled,
+    syncCalendarEvents,
+    lastCalendarSyncAt,
+  } = usePlanStore();
   const { mode: themeMode, setThemeMode } = useThemeStore();
   const { habits } = useHabitStore();
   const API_BASE_URL = getApiBaseUrl();
@@ -71,6 +81,7 @@ export default function SettingsScreen() {
     appearance: false,
     habits: false,
     data: false,
+    calendar: false,
   });
   
   useEffect(() => {
@@ -262,6 +273,44 @@ export default function SettingsScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
+  // Calendar sync UI state
+  const [availableCalendars, setAvailableCalendars] = useState<Array<{ id: string; title: string; color?: string }>>([]);
+
+  const handleLoadCalendars = async () => {
+    try {
+      const granted = await requestCalendarPermission();
+      if (!granted) {
+        Alert.alert('Calendar permission required', 'Please grant calendar access to import events.');
+        return;
+      }
+      const list = await loadAvailableCalendars();
+      setAvailableCalendars(list || []);
+    } catch (err) {
+      console.warn('[Settings] load calendars failed', err);
+    }
+  };
+
+  const toggleCalendarSelection = async (id: string) => {
+    const current = selectedCalendarIds || [];
+    const next = current.includes(id) ? current.filter((c) => c !== id) : [...current, id];
+    await setSelectedCalendarIds(next);
+  };
+
+  const handleToggleCalendarSync = async (value: boolean) => {
+    if (value) {
+      const granted = await requestCalendarPermission();
+      if (!granted) {
+        Alert.alert('Permission Denied', 'Calendar permission is required to enable sync.');
+        return;
+      }
+    }
+    await setCalendarSyncEnabled(value);
+    if (value) {
+      // kick off an initial sync
+      await syncCalendarEvents('today_and_tomorrow').catch((err) => console.warn('[Settings] initial sync failed', err));
+    }
+  };
+
   const handleReset = () => {
     Alert.alert(
       'Reset Profile',
@@ -422,6 +471,56 @@ export default function SettingsScreen() {
           )}
         </View>
       )}
+
+        {/* Calendar Sync Section */}
+        <TouchableOpacity
+          style={styles.sectionHeader}
+          onPress={() => toggleSection('calendar')}
+        >
+          <Text style={styles.sectionTitle}>📅 Calendar Sync</Text>
+          <Text style={styles.expandIcon}>{expandedSections.calendar ? '▼' : '▶'}</Text>
+        </TouchableOpacity>
+
+        {expandedSections.calendar && (
+          <View style={styles.section}>
+            <View style={styles.row}>
+              <Text style={styles.label}>Enable Calendar Sync</Text>
+              <Switch
+                value={!!calendarSyncEnabled}
+                onValueChange={(v) => void handleToggleCalendarSync(v)}
+                trackColor={{ false: '#333', true: '#22D3EE' }}
+                thumbColor={calendarSyncEnabled ? '#fff' : '#ccc'}
+              />
+            </View>
+
+            <TouchableOpacity style={[styles.primaryButton, { marginTop: 12 }]} onPress={() => void handleLoadCalendars()}>
+              <Text style={styles.primaryButtonText}>Load Calendars</Text>
+            </TouchableOpacity>
+
+            {availableCalendars.length > 0 ? (
+              <View style={{ marginTop: 12 }}>
+                {availableCalendars.map((c) => (
+                  <TouchableOpacity
+                    key={c.id}
+                    onPress={() => void toggleCalendarSelection(c.id)}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}
+                  >
+                    <Text style={{ color: '#fff', flex: 1 }}>{c.title}</Text>
+                    <Text style={{ color: '#888' }}>{(selectedCalendarIds || []).includes(c.id) ? '✓' : ''}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+
+            {lastCalendarSyncAt ? (
+              <Text style={[styles.helpText, { marginTop: 12 }]}>Last synced: {new Date(lastCalendarSyncAt).toLocaleString()}</Text>
+            ) : null}
+
+            <TouchableOpacity style={[styles.primaryButton, { marginTop: 12 }]} onPress={() => void syncCalendarEvents('today')}>
+              <Text style={styles.primaryButtonText}>Sync Now</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
       {/* NOTIFICATIONS SECTION */}
       <TouchableOpacity

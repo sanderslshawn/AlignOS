@@ -14,6 +14,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usePlanStore } from '../store/planStore';
 import { haptics } from '../utils/haptics';
@@ -63,6 +64,7 @@ export default function ChatScreen({ navigation }: any) {
     generateFullDayPlan,
   } = usePlanStore();
   const API_BASE_URL = getApiBaseUrl();
+  const insets = useSafeAreaInsets();
   
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -260,8 +262,8 @@ export default function ChatScreen({ navigation }: any) {
   return (
     <KeyboardAvoidingView 
       style={[styles.container, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={90}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={110 + (insets.bottom || 0)}
     >
       <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <View style={styles.headerContent}>
@@ -350,7 +352,7 @@ export default function ChatScreen({ navigation }: any) {
         </View>
       )}
 
-      <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
+      <View style={[styles.inputContainer, { borderTopColor: colors.border, paddingBottom: insets.bottom || 0 }]}>
         <View style={[styles.inputWrapper, { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle }]}>
           <TextInput
             style={[styles.input, { color: colors.textPrimary }]}

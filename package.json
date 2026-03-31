@@ -14,10 +14,12 @@
     "api": "npm run dev --workspace=services/api",
     "api:prod": "npm run start --workspace=services/api",
     "build": "npm run build --workspaces --if-present",
+    "postinstall": "npm run build --workspace=@physiology-engine/shared && npm run build --workspace=@physiology-engine/engine && npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:engine": "npm run test --workspace=packages/engine",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules services/*/node_modules",
-    "type-check": "tsc --noEmit --workspaces"
+    "type-check": "tsc --noEmit --workspaces",
+    "icons:ios": "node scripts/generate-icons.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.5",
@@ -25,5 +27,8 @@
     "typescript": "^5.3.3",
     "jest": "^29.7.0",
     "@types/jest": "^29.5.11"
+  },
+  "dependencies": {
+    "expo-calendar": "~15.0.8"
   }
 }

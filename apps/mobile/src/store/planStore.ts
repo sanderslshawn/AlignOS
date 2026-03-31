@@ -6,6 +6,7 @@
 
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type * as Calendar from 'expo-calendar';
 import type {
   UserProfile,
   DayState,
@@ -81,6 +82,8 @@ interface PlanState {
   pendingAnchorRecommendations: AnchorRecommendationAction[];
   todayPlanSettingsFingerprint: string | null;
   initialized: boolean;
+  // If true, generatePlan/generateFullDayPlan should run in deferred init
+  needsInitialPlanGeneration?: boolean;
 
   syncStatus: SyncStatus;
   lastSyncAt: Date | null;
@@ -134,6 +137,21 @@ interface PlanState {
   syncToAPI: () => Promise<void>;
   enableAutoRefresh: () => void;
   disableAutoRefresh: () => void;
+  importCalendarEvents: () => Promise<void>;
+  // Calendar sync state & actions
+  calendarPermissionStatus?: 'granted' | 'denied' | 'undetermined';
+  selectedCalendarIds?: string[];
+  calendarSyncEnabled?: boolean;
+  lastCalendarSyncAt?: string | null;
+
+  requestCalendarPermission: () => Promise<boolean>;
+  loadAvailableCalendars: () => Promise<Array<{ id: string; title: string; color?: string }>>;
+  setSelectedCalendarIds: (ids: string[]) => Promise<void>;
+  setCalendarSyncEnabled: (enabled: boolean) => Promise<void>;
+  syncCalendarEvents: (range?: 'today' | 'tomorrow' | 'today_and_tomorrow') => Promise<void>;
+  removeImportedCalendarEvent: (externalEventId: string) => Promise<void>;
+  maybeRefreshCalendarOnAppOpen: () => Promise<void>;
+  runDeferredInitializations?: () => Promise<void>;
 }
 
 const API_BASE_URL = getApiBaseUrl();
@@ -218,10 +236,11 @@ function normalizeScheduleEntries(entries: ScheduleItem[]): ScheduleItem[] {
       ...normalizedTime,
       startTime: startTime || undefined,
       endTime: endTime || undefined,
-      // Pass `dateISO` (YYYY-MM-DD) as the base so `toISOWithClockTime` treats
-      // the components as a local date and preserves the entered clock time.
-      startISO: startTime ? toISOWithClockTime(dateISO, startTime) : entry.startISO,
-      endISO: endTime ? toISOWithClockTime(dateISO, endTime) : entry.endISO,
+      // Preserve explicit ISO timestamps when present (e.g., imported calendar
+      // events). Only synthesize an ISO using the local `dateISO` when an
+      // ISO is not available but a clock-time was provided.
+      startISO: entry.startISO ? entry.startISO : (startTime ? toISOWithClockTime(dateISO, startTime) : entry.startISO),
+      endISO: entry.endISO ? entry.endISO : (endTime ? toISOWithClockTime(dateISO, endTime) : entry.endISO),
       status,
       source,
       isSystemAnchor,
@@ -472,15 +491,27 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         fullDayPlan,
         todayPlanSettingsFingerprint,
         initialized: true,
+        needsInitialPlanGeneration: !!(profile && dayState && !fullDayPlan),
       });
 
-      if (profile && dayState && !fullDayPlan) {
-        await get().generatePlan(true);
-        await get().generateFullDayPlan({
-          intent: 'REGENERATE',
-          baseItems: [],
-        });
+      // load persisted calendar selection and sync state
+      try {
+        const storedSelected = await AsyncStorage.getItem('calendar_selected_ids');
+        if (storedSelected) {
+          const ids = JSON.parse(storedSelected || '[]');
+          set({ selectedCalendarIds: ids });
+        }
+        const lastSync = await AsyncStorage.getItem('calendar_last_sync');
+        if (lastSync) set({ lastCalendarSyncAt: lastSync });
+        const syncEnabled = await AsyncStorage.getItem('calendar_sync_enabled');
+        if (syncEnabled) set({ calendarSyncEnabled: syncEnabled === 'true' });
+      } catch (err) {
+        console.warn('[PlanStore] failed to load calendar prefs', err);
       }
+
+      // NOTE: heavy plan generation moved to deferred initialization
+      // if a fullDayPlan is missing we mark that generation should occur later
+      // (see `runDeferredInitializations`)
     } catch (error) {
       console.error('[PlanStore] Initialize error:', error);
       set({ syncStatus: 'error', syncError: String(error), initialized: true });
@@ -546,6 +577,157 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       intent: 'REGENERATE',
       baseItems: [],
     });
+  },
+
+  importCalendarEvents: async () => {
+    await get().syncCalendarEvents('today');
+  },
+
+  // Calendar operations
+  requestCalendarPermission: async () => {
+    try {
+      const CalendarModule = await import('expo-calendar');
+      const { status } = await CalendarModule.requestCalendarPermissionsAsync();
+      const granted = status === 'granted';
+      set({ calendarPermissionStatus: granted ? 'granted' : 'denied' });
+      return granted;
+    } catch (err) {
+      console.warn('[PlanStore] requestCalendarPermission failed', err);
+      set({ calendarPermissionStatus: 'denied' });
+      return false;
+    }
+  },
+
+  loadAvailableCalendars: async () => {
+    try {
+      const CalendarModule = await import('expo-calendar');
+      const calendars = await CalendarModule.getCalendarsAsync(CalendarModule.EntityTypes.EVENT);
+      return calendars.map((c) => ({ id: c.id, title: c.title, color: (c as any).color }));
+    } catch (err) {
+      console.warn('[PlanStore] loadAvailableCalendars failed', err);
+      return [];
+    }
+  },
+
+  setSelectedCalendarIds: async (ids: string[]) => {
+    try {
+      await AsyncStorage.setItem('calendar_selected_ids', JSON.stringify(ids || []));
+      set({ selectedCalendarIds: ids });
+    } catch (err) {
+      console.warn('[PlanStore] setSelectedCalendarIds failed', err);
+    }
+  },
+
+  setCalendarSyncEnabled: async (enabled: boolean) => {
+    try {
+      await AsyncStorage.setItem('calendar_sync_enabled', enabled ? 'true' : 'false');
+      set({ calendarSyncEnabled: enabled });
+    } catch (err) {
+      console.warn('[PlanStore] setCalendarSyncEnabled failed', err);
+    }
+  },
+
+  syncCalendarEvents: async (range = 'today') => {
+    try {
+      const ids = get().selectedCalendarIds || [];
+      const now = new Date();
+      const ranges: Array<{ start: Date; end: Date }> = [];
+      const startToday = new Date(now); startToday.setHours(0,0,0,0);
+      const endToday = new Date(now); endToday.setHours(23,59,59,999);
+      const tomorrow = new Date(now); tomorrow.setDate(now.getDate()+1);
+      const startTomorrow = new Date(tomorrow); startTomorrow.setHours(0,0,0,0);
+      const endTomorrow = new Date(tomorrow); endTomorrow.setHours(23,59,59,999);
+
+      if (range === 'today' || range === 'today_and_tomorrow') ranges.push({ start: startToday, end: endToday });
+      if (range === 'tomorrow' || range === 'today_and_tomorrow') ranges.push({ start: startTomorrow, end: endTomorrow });
+
+      for (const r of ranges) {
+        const events = await importCalendarEventsForRange(r.start, r.end, ids);
+        for (const evt of events) {
+          const exists = (get().todayEntries || []).find((e) => (e.meta as any)?.externalEventId === (evt.meta as any).externalEventId && (e.meta as any).calendarId === (evt.meta as any).calendarId);
+          if (exists) {
+            await get().updateTodayEntry(exists.id, {
+              title: evt.title,
+              startISO: evt.startISO,
+              endISO: evt.endISO,
+              startMin: evt.startMin,
+              endMin: evt.endMin,
+              durationMin: evt.durationMin,
+              meta: { ...(exists.meta || {}), ...(evt.meta || {}), lastSyncedAt: new Date().toISOString() },
+            } as any);
+          } else {
+            try {
+              await get().addTodayEntry(evt as any);
+            } catch (err) {
+              console.warn('[PlanStore] syncCalendarEvents add failed', err);
+            }
+          }
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+      await AsyncStorage.setItem('calendar_last_sync', nowIso);
+      set({ lastCalendarSyncAt: nowIso });
+    } catch (err) {
+      console.warn('[PlanStore] syncCalendarEvents failed', err);
+    }
+  },
+
+  removeImportedCalendarEvent: async (externalEventId: string) => {
+    try {
+      const items = get().todayEntries || [];
+      const target = items.find((i) => (i.meta as any)?.externalEventId === externalEventId && (i.meta as any)?.isImported);
+      if (target) {
+        await get().deleteTodayEntry(target.id);
+      }
+    } catch (err) {
+      console.warn('[PlanStore] removeImportedCalendarEvent failed', err);
+    }
+  },
+
+  maybeRefreshCalendarOnAppOpen: async () => {
+    try {
+      const enabled = get().calendarSyncEnabled;
+      if (!enabled) return;
+      await get().requestCalendarPermission();
+      await get().syncCalendarEvents('today');
+    } catch (err) {
+      console.warn('[PlanStore] maybeRefreshCalendarOnAppOpen failed', err);
+    }
+  },
+
+  // Deferred initializations that may be heavy or should not block first render.
+  runDeferredInitializations: async () => {
+    try {
+      // If plan generation was deferred, run it now
+      if (get().needsInitialPlanGeneration) {
+        try {
+          await get().generatePlan(true);
+        } catch (err) {
+          console.warn('[PlanStore] deferred generatePlan failed', err);
+        }
+        try {
+          await get().generateFullDayPlan({ intent: 'REGENERATE', baseItems: [] });
+        } catch (err) {
+          console.warn('[PlanStore] deferred generateFullDayPlan failed', err);
+        }
+        set({ needsInitialPlanGeneration: false });
+      }
+
+      // Calendar auto-sync only if user previously enabled it and permission is already granted.
+      try {
+        const enabled = get().calendarSyncEnabled;
+        const perm = get().calendarPermissionStatus;
+        if (enabled && perm === 'granted') {
+          // run sync but do not request permissions here
+          await get().syncCalendarEvents('today');
+        }
+      } catch (err) {
+        console.warn('[PlanStore] deferred calendar auto-sync failed', err);
+      }
+    } catch (err) {
+      console.warn('[PlanStore] runDeferredInitializations failed', err);
+    }
   },
 
   generatePlan: async (forceRecompute = false) => {
@@ -1470,4 +1652,86 @@ function suppressionExactKeyForItem(
   item: Pick<ScheduleItem, 'type' | 'title' | 'startMin' | 'startISO' | 'startTime'>
 ): string {
   return signatureForDeleteGuard(item);
+}
+
+// Calendar import helper: returns schedule items mapped from a calendar range
+async function importCalendarEventsForRange(start: Date, end: Date, selectedCalendarIds?: string[]): Promise<Omit<ScheduleItem, 'id'>[]> {
+  const CalendarModule = await import('expo-calendar');
+  // Ensure permission is granted before attempting to read calendars/events
+  const perm = await CalendarModule.requestCalendarPermissionsAsync();
+  const status = perm?.status;
+  if (!status || status !== 'granted') {
+    throw new Error('Calendar permission denied');
+  }
+
+  const allCalendars = await CalendarModule.getCalendarsAsync(CalendarModule.EntityTypes.EVENT);
+  const calendars = (selectedCalendarIds && selectedCalendarIds.length)
+    ? allCalendars.filter((c) => selectedCalendarIds.includes(c.id))
+    : allCalendars;
+
+  let events: Calendar.Event[] = [] as any;
+
+  for (const cal of calendars) {
+    try {
+      const calEvents = await CalendarModule.getEventsAsync([cal.id], start, end);
+      // attach calendar title and only include events whose start falls within the requested range
+      const mapped = calEvents
+        .map((e) => ({ ...e, _calendarTitle: cal.title }))
+        .filter((e) => {
+          try {
+            const sd = new Date(e.startDate as any);
+            return sd.getTime() >= start.getTime() && sd.getTime() <= end.getTime();
+          } catch (err) {
+            return false;
+          }
+        });
+      events = [...events, ...mapped];
+    } catch (err) {
+      // ignore per-calendar errors
+      console.warn('[PlanStore] getEventsAsync failed for calendar', cal.id, err);
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+
+  return events
+    .filter((event) => event && (!('status' in event) || (event as any).status !== 'cancelled'))
+    .map((event) => {
+      const startDate = new Date(event.startDate as any);
+      const endDate = new Date(event.endDate as any);
+
+      const startMin = startDate.getHours() * 60 + startDate.getMinutes();
+      const endMin = endDate.getHours() * 60 + endDate.getMinutes();
+
+      const title = (event.title || '').trim() || 'Calendar Event';
+      const lower = title.toLowerCase();
+      let type: ScheduleItem['type'] = 'meeting';
+      if (/work(out|out)|exercise|gym|run|lift|training/.test(lower)) type = 'workout';
+      else if (/commute|travel|drive|pickup|dropoff|uber|taxi/.test(lower)) type = 'commute';
+
+      return {
+        type,
+        title,
+        startISO: startDate.toISOString(),
+        endISO: endDate.toISOString(),
+        startMin,
+        endMin,
+        durationMin: Math.max(5, endMin - startMin),
+        fixed: true,
+        isFixedAnchor: true,
+        isSystemAnchor: false,
+        locked: false,
+        deletable: true,
+        source: 'system' as const,
+        status: 'planned' as const,
+        meta: {
+          source: 'calendar',
+          isImported: true,
+          calendarId: (event as any).calendarId || (event as any).calendar || undefined,
+          calendarTitle: (event as any)._calendarTitle || undefined,
+          externalEventId: (event as any).id || (event as any).eventId || undefined,
+          lastSyncedAt: nowIso,
+        },
+      } as Omit<ScheduleItem, 'id'>;
+    });
 }

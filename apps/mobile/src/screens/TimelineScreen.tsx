@@ -12,11 +12,13 @@ import { canDeleteScheduleItem } from '../engine/normalizeTimeline';
 import { clockTimeFromISO, formatClockTime, parseClockTime } from '../utils/clockTime';
 import { useTodayEntryState } from '../hooks/useTodayEntryState';
 import { useFeatureDiscovery } from '../hooks/useFeatureDiscovery';
+import { ask as askAdvisor } from '../advisor';
 import { useTheme, Card, Pill, IconButton, PrimaryButton, AppIcon } from '@physiology-engine/ui';
 import { safeRenderTimeline } from '../utils/safeRenderTimeline';
 import { groupEarlierAndCompletedToday } from '../utils/groupEarlierAndCompletedToday';
 import { detectScheduleDrift } from '../utils/detectScheduleDrift';
 import { sortScheduleItems } from '../utils/scheduleSort';
+import { extractTimelineInserts, mapAdvisorInsertToScheduleItem } from '../advisor/utils/timelineInsert';
 
 const iconByType: Record<string, any> = {
   wake: 'sunrise',
@@ -74,6 +76,10 @@ export default function TimelineScreen({ navigation }: any) {
     applyAllRecommendations,
     declineRecommendation,
     declineAllRecommendations,
+    importCalendarEvents,
+    syncCalendarEvents,
+    lastCalendarSyncAt,
+    calendarSyncEnabled,
   } = usePlanStore();
 
   const [editingItem, setEditingItem] = useState<ScheduleItem | null>(null);
@@ -101,6 +107,25 @@ export default function TimelineScreen({ navigation }: any) {
 
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const [changeLog, setChangeLog] = useState<string[]>([]);
+
+  function logChange(message: string) {
+    setChangeLog((s) => [message, ...s].slice(0, 50));
+  }
+
+  function evaluateNowOptions(item: ScheduleItem | null, state: any) {
+    if (!item) return [] as Array<{ id: string; label: string }>;
+    return [
+      { id: 'MARK_DONE', label: 'Mark done' },
+      { id: 'DELAY_10', label: 'Delay 10 min' },
+      { id: 'SWAP_WALK', label: 'Swap with walk' },
+      { id: 'OPTIMIZE_2H', label: 'Optimize next 2 hours' },
+      { id: 'WHAT_CHANGED', label: 'What changed' },
+    ];
+  }
+
+  const lastAutoAdvisorAtRef = useRef(0);
 
   const todayItems = useMemo(() => {
     if (!fullDayPlan || !profile) return [] as ScheduleItem[];
@@ -146,12 +171,50 @@ export default function TimelineScreen({ navigation }: any) {
   const comingUp = futureAfterNow.slice(0, 4);
   const laterToday = futureAfterNow.slice(4);
 
+  const suggestions = evaluateNowOptions(nowItem, dayState);
+
   const completedAndEarlier = useMemo(
     () => groupEarlierAndCompletedToday(todayItems, nowMinutes, todayISO),
     [todayItems, nowMinutes, todayISO]
   );
 
   const drift = useMemo(() => detectScheduleDrift(now, todayItems), [now, todayItems]);
+
+  useEffect(() => {
+    const missed = todayItems.some((item) => (item.startMin || 0) < nowMinutes - 15 && item.status === 'planned');
+    if (!drift.hasDrift && !missed) return;
+
+    const elapsed = Date.now() - lastAutoAdvisorAtRef.current;
+    if (elapsed < 10 * 60 * 1000) return;
+    lastAutoAdvisorAtRef.current = Date.now();
+
+    (async () => {
+      try {
+        const resp = await askAdvisor('User is behind schedule, fix next 2 hours', {
+          context: {
+            timeline: fullDayPlan?.items,
+            now,
+            signals: (dayState as any)?.quickStatusSignals || [],
+            goals: (dayState as any)?.goals,
+          },
+        });
+
+        const inserts = extractTimelineInserts(resp);
+        if (inserts && inserts.length > 0) {
+          for (const insert of inserts) {
+            const item = mapAdvisorInsertToScheduleItem(insert);
+            await addTodayEntry(item);
+            logChange(`Auto-advisor inserted: ${item.title || item.type}`);
+          }
+        } else {
+          await refreshFromNow();
+          logChange('Auto-advisor refreshed schedule');
+        }
+      } catch (err) {
+        console.warn('[Timeline] auto-advisor failed', err);
+      }
+    })();
+  }, [drift.hasDrift, todayItems, nowMinutes]);
 
   useEffect(() => {
     if (!drift.hasDrift || !autoRefreshEnabled) return;
@@ -190,6 +253,46 @@ export default function TimelineScreen({ navigation }: any) {
     }
   };
 
+  const handleNowSuggestion = async (actionId: string) => {
+    if (!nowItem) return;
+    if (actionId === 'MARK_DONE') {
+      await markDone(nowItem);
+      return;
+    }
+    if (actionId === 'DELAY_10') {
+      const start = (nowItem.startMin || 0) + 10;
+      const end = (nowItem.endMin || start + (nowItem.durationMin || 5)) + 10;
+      await updateTodayEntry(nowItem.id, {
+        startMin: start,
+        endMin: end,
+        startISO: new Date(new Date().setMinutes(new Date().getMinutes() + 10)).toISOString(),
+        endISO: new Date(new Date().setMinutes(new Date().getMinutes() + 10 + (nowItem.durationMin || 5))).toISOString(),
+      } as any);
+      logChange(`Delayed ${nowItem.title || nowItem.type} by 10 min`);
+      return;
+    }
+    if (actionId === 'SWAP_WALK') {
+      const duration = 10;
+      await updateTodayEntry(nowItem.id, {
+        type: 'walk',
+        title: 'Walk',
+        durationMin: duration,
+        endMin: (nowItem.startMin || 0) + duration,
+        endISO: addMinutes(new Date(), duration).toISOString(),
+      } as any);
+      logChange(`Swapped ${nowItem.title || nowItem.type} with a walk`);
+      return;
+    }
+    if (actionId === 'OPTIMIZE_2H') {
+      await refreshFromNow();
+      logChange('Optimized next 2 hours');
+      return;
+    }
+    if (actionId === 'WHAT_CHANGED') {
+      // noop - UI will show changeLog
+      return;
+    }
+  };
   const handleRefreshFromNow = async () => {
     setIsBusy(true);
     try {
@@ -209,7 +312,7 @@ export default function TimelineScreen({ navigation }: any) {
     }
   };
 
-  const createDraftEvent = (template: 'meeting' | 'appointment' | 'errand' | 'commute' | 'custom'): ScheduleItem => {
+  const createDraftEvent = (template: 'meeting' | 'appointment' | 'errand' | 'commute' | 'custom' | 'workout' | 'walk'): ScheduleItem => {
     const nowDate = new Date();
     const start = addMinutes(nowDate, 30);
     const duration = template === 'meeting' || template === 'appointment' ? 60 : template === 'commute' ? 30 : 45;
@@ -218,7 +321,15 @@ export default function TimelineScreen({ navigation }: any) {
     const endMin = end.getHours() * 60 + end.getMinutes();
 
     const type: ScheduleItem['type'] =
-      template === 'meeting' ? 'meeting' : template === 'commute' ? 'commute' : 'custom';
+      template === 'meeting'
+        ? 'meeting'
+        : template === 'commute'
+        ? 'commute'
+        : template === 'workout'
+        ? 'workout'
+        : template === 'walk'
+        ? 'walk'
+        : 'custom';
 
     const titleMap: Record<typeof template, string> = {
       meeting: 'Meeting',
@@ -226,12 +337,17 @@ export default function TimelineScreen({ navigation }: any) {
       errand: 'Errand',
       commute: 'Commute',
       custom: 'Custom Event',
+      workout: 'Workout',
+      walk: 'Walk',
     };
 
-    return {
-      id: `draft-${Date.now()}`,
-      type,
-      title: titleMap[template],
+    const base: Omit<ScheduleItem, 'id' | 'type' | 'title' | 'startISO' | 'endISO' | 'startMin' | 'endMin' | 'durationMin'> & {
+      startISO: string;
+      endISO: string;
+      startMin: number;
+      endMin: number;
+      durationMin: number;
+    } = {
       startISO: start.toISOString(),
       endISO: end.toISOString(),
       startMin,
@@ -248,11 +364,56 @@ export default function TimelineScreen({ navigation }: any) {
         isAnchor: template !== 'custom',
         anchorTemplate: template,
       },
-    };
+    } as any;
+
+    if (template === 'workout') {
+      return {
+        id: `draft-${Date.now()}`,
+        ...base,
+        type: 'workout',
+        title: 'Workout',
+        durationMin: 45,
+        endISO: addMinutes(start, 45).toISOString(),
+        endMin: startMin + 45,
+      } as ScheduleItem;
+    }
+
+    if (template === 'walk') {
+      return {
+        id: `draft-${Date.now()}`,
+        ...base,
+        type: 'walk',
+        title: 'Walk',
+        durationMin: 15,
+        endISO: addMinutes(start, 15).toISOString(),
+        endMin: startMin + 15,
+      } as ScheduleItem;
+    }
+
+    return {
+      id: `draft-${Date.now()}`,
+      type,
+      title: (titleMap as any)[template],
+      startISO: base.startISO,
+      endISO: base.endISO,
+      startMin: base.startMin,
+      endMin: base.endMin,
+      durationMin: base.durationMin,
+      isSystemAnchor: base.isSystemAnchor,
+      isFixedAnchor: base.isFixedAnchor,
+      fixed: base.fixed,
+      locked: base.locked,
+      deletable: base.deletable,
+      source: base.source,
+      status: base.status,
+      meta: base.meta,
+    } as ScheduleItem;
   };
 
   const handleOpenAddEvent = () => {
     Alert.alert('Add Event', 'Choose event type', [
+      { text: 'Workout', onPress: () => setDraftItem(createDraftEvent('workout')) },
+      { text: 'Walk', onPress: () => setDraftItem(createDraftEvent('walk')) },
       { text: 'Meeting', onPress: () => setDraftItem(createDraftEvent('meeting')) },
       { text: 'Appointment', onPress: () => setDraftItem(createDraftEvent('appointment')) },
       { text: 'Errand', onPress: () => setDraftItem(createDraftEvent('errand')) },
@@ -291,6 +452,7 @@ export default function TimelineScreen({ navigation }: any) {
       return;
     }
 
+      logChange(`Added ${item.title || item.type}`);
     setIsBusy(true);
     try {
       await deleteTodayEntry(item.id);
@@ -364,6 +526,7 @@ export default function TimelineScreen({ navigation }: any) {
         origin: 'actual',
         completedAt: new Date().toISOString(),
       });
+      logChange(`Marked done: ${item.title || item.type}`);
     } finally {
       setIsBusy(false);
     }
@@ -402,6 +565,7 @@ export default function TimelineScreen({ navigation }: any) {
         intent: 'REGENERATE',
         baseItems: [],
       });
+      logChange('Built today plan');
     } finally {
       setIsBusy(false);
     }
@@ -821,6 +985,20 @@ export default function TimelineScreen({ navigation }: any) {
                       <Text style={[typography.caption, { color: colors.textSecondary }]}>Add Event</Text>
                     </TouchableOpacity>
                   </View>
+
+                  {suggestions && suggestions.length > 0 ? (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: spacing.sm }}>
+                      {suggestions.map((s) => (
+                        <TouchableOpacity
+                          key={s.id}
+                          onPress={() => void handleNowSuggestion(s.id)}
+                          style={{ borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, marginRight: spacing.xs, marginTop: spacing.xs }}
+                        >
+                          <Text style={[typography.caption, { color: colors.textSecondary }]}>{s.label}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ) : null}
                 </Card>
               </View>
             )}
@@ -883,6 +1061,19 @@ export default function TimelineScreen({ navigation }: any) {
           </>
         )}
       </ScrollView>
+
+      {changeLog.length > 0 ? (
+        <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>
+          <Card>
+            <Text style={[typography.bodyM, { color: colors.textPrimary, fontWeight: '700' }]}>What Changed</Text>
+            <View style={{ marginTop: spacing.sm }}>
+              {changeLog.slice(0, 10).map((c, idx) => (
+                <Text key={idx} style={[typography.caption, { color: colors.textSecondary, marginBottom: 6 }]}>• {c}</Text>
+              ))}
+            </View>
+          </Card>
+        </View>
+      ) : null}
 
       <EditScheduleItemModal
         visible={!!editingItem || !!draftItem}

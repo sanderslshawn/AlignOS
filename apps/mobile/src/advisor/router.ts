@@ -10,6 +10,7 @@ import presetBankData from './presets/presetBank.json';
 export type AskAdvisorOptions = {
   forcePreset?: boolean;
   requestSource?: 'starter-prompt' | 'free-text';
+  context?: any;
 };
 
 const presetBank = presetBankData as PresetQuestion[];
@@ -49,8 +50,8 @@ export async function askWithOptions(question: string, options?: AskAdvisorOptio
   // Clean up old limit keys periodically (async, don't block)
   cleanupOldLimits().catch(err => console.warn('Failed to clean up old limits:', err));
   
-  // Step 1: Build current day context
-  const context = buildDayContext();
+  // Step 1: Build current day context (allow caller-provided context override)
+  const context = options?.context ?? buildDayContext();
   const hasBackendApi = Boolean((process.env.EXPO_PUBLIC_API_URL || '').trim());
 
   if (options?.forcePreset) {
